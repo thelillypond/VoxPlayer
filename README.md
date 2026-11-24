@@ -11,5 +11,16 @@ YouTube is engineered to keep you scrolling through Shorts, rage-bait recommenda
 * **Vox-Deck Offline Audio:** Extract and cache maximum-bitrate audio streams locally for distraction-free background listening, complete with playlists, favourites, genre tags, and real-time PCM equalizer bars.
 * **100% Local-First:** Your subscriptions, cached summaries, and offline audio tracks stay on your device via Room and Android MediaStore.
 
+## Screenshots
+| RSS Feed | AI Video Scan | Chapters & Key Jumps | Audio Extraction | Vox-Deck Audio |
+| :---: | :---: | :---: | :---: | :---: |
+| ![RSS Feed](docs/screenshots/feed.png) | ![AI Scan](docs/screenshots/scan.png) | ![Chapters](docs/screenshots/chapters.png) | ![Audio Extraction](docs/screenshots/extract.png) | ![Vox-Deck](docs/screenshots/voxdeck.png) |
+
+## Setup: Free Gemini API Key
+AI video scans use your own free Google Gemini API key (stored locally on your device):
+1. Go to **[Google AI Studio API Keys](https://aistudio.google.com/api-keys)** and sign in with a Google account.
+2. Click **Create API key** and choose or create a Google Cloud project (no credit card or billing setup is required for the free tier).
+3. Copy the generated key, open **VoxPlayer > Settings**, paste it into the **Gemini API Key** field, and save.
+
 ## Download & Install
 Grab the latest signed APK from the **[Releases](https://github.com/thelillypond/VoxPlayer/releases/latest)** page and install it on Android 8.0+.

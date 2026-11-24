@@ -23,7 +23,7 @@
           padding: 2rem 1rem;
         }
         .container {
-          max-width: 760px;
+          max-width: 860px;
           margin: 0 auto;
           background: var(--panel);
           border: 1px solid var(--border);
@@ -41,6 +41,14 @@
           font-size: 2rem;
           letter-spacing: 0.06em;
           margin-bottom: 0.75rem;
+        }
+        h2.section-title {
+          color: var(--phosphor);
+          font-size: 1.15rem;
+          letter-spacing: 0.06em;
+          border-bottom: 1px solid var(--border);
+          padding-bottom: 0.4rem;
+          margin: 2.25rem 0 1rem;
         }
         .tagline {
           font-size: 1.05rem;
@@ -64,26 +72,66 @@
           font-size: 0.85rem;
           margin-bottom: 2rem;
         }
-        .sub-cta a { color: var(--amber); text-decoration: none; }
+        .sub-cta a, .guide a { color: var(--amber); text-decoration: none; }
+        .sub-cta a:hover, .guide a:hover { text-decoration: underline; }
         .grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
           gap: 1rem;
-          margin-bottom: 2rem;
         }
         .card {
           border: 1px solid var(--border);
           padding: 1rem;
           background: #0e1210;
         }
-        .card h2 {
+        .card h3 {
           color: var(--amber);
           font-size: 1rem;
           margin-bottom: 0.4rem;
         }
         .card p { font-size: 0.9rem; color: var(--muted); }
+        .shots {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          gap: 0.85rem;
+        }
+        .shot {
+          border: 1px solid var(--border);
+          background: #0e1210;
+          padding: 0.5rem;
+          text-align: center;
+        }
+        .shot img {
+          width: 100%;
+          height: auto;
+          display: block;
+          border: 1px solid #1d2923;
+          margin-bottom: 0.5rem;
+        }
+        .shot span {
+          font-size: 0.78rem;
+          color: var(--amber);
+        }
+        .guide {
+          border: 1px solid var(--border);
+          background: #0e1210;
+          padding: 1.25rem;
+        }
+        .guide ol {
+          padding-left: 1.25rem;
+          color: var(--text);
+          font-size: 0.92rem;
+        }
+        .guide li { margin-bottom: 0.6rem; }
+        .guide li:last-child { margin-bottom: 0; }
+        .note {
+          margin-top: 0.85rem;
+          font-size: 0.85rem;
+          color: var(--muted);
+        }
         footer {
           border-top: 1px solid var(--border);
+          margin-top: 2rem;
           padding-top: 1rem;
           font-size: 0.85rem;
           color: var(--muted);
@@ -99,24 +147,63 @@
     </p>
     <a class="cta" href="https://github.com/thelillypond/VoxPlayer/releases/latest">DOWNLOAD LATEST APK (ANDROID 8.0+)</a>
     <span class="sub-cta">Open source on <a href="https://github.com/thelillypond/VoxPlayer">GitHub (thelillypond/VoxPlayer)</a></span>
+
     <section class="grid">
         <div class="card">
-            <h2>[01] PURE RSS FEED</h2>
+            <h3>[01] PURE RSS FEED</h3>
             <p>Subscribe directly to channels without logging in. No home feed, no Shorts, and no autoplay rabbit holes.</p>
         </div>
         <div class="card">
-            <h2>[02] GEMINI AI TRIAGE</h2>
+            <h3>[02] GEMINI AI TRIAGE</h3>
             <p>Plug in your own free Gemini API key to scan videos at Brief, Standard, or Deep depth before committing your time.</p>
         </div>
         <div class="card">
-            <h2>[03] CHAPTERS &amp; KEY JUMPS</h2>
+            <h3>[03] CHAPTERS &amp; KEY JUMPS</h3>
             <p>View full video chapters at a glance or tap key points in the AI scan readout to cut straight to the exact moment of interest.</p>
         </div>
         <div class="card">
-            <h2>[04] VOX-DECK AUDIO</h2>
+            <h3>[04] VOX-DECK AUDIO</h3>
             <p>Cache maximum-bitrate audio locally for offline listening with playlists, favourites, genre tags, and live PCM equalizer bars.</p>
         </div>
     </section>
+
+    <h2 class="section-title">// INTERFACE TELEMETRY</h2>
+    <section class="shots">
+        <figure class="shot">
+            <img src="screenshots/feed.png" alt="VoxPlayer RSS Feed Screen" />
+            <span>[RSS CHANNEL FEED]</span>
+        </figure>
+        <figure class="shot">
+            <img src="screenshots/scan.png" alt="VoxPlayer Gemini AI Video Summary" />
+            <span>[GEMINI AI SCAN]</span>
+        </figure>
+        <figure class="shot">
+            <img src="screenshots/chapters.png" alt="VoxPlayer Video Chapters and Timestamp Jump" />
+            <span>[CHAPTERS &amp; KEY JUMPS]</span>
+        </figure>
+        <figure class="shot">
+            <img src="screenshots/extract.png" alt="VoxPlayer Audio Extraction" />
+            <span>[AUDIO EXTRACTION]</span>
+        </figure>
+        <figure class="shot">
+            <img src="screenshots/voxdeck.png" alt="VoxPlayer Offline Audio Deck" />
+            <span>[VOX-DECK AUDIO]</span>
+        </figure>
+    </section>
+
+    <h2 class="section-title">// SETUP: FREE GEMINI API KEY</h2>
+    <section class="guide">
+        <ol>
+            <li>Open <a href="https://aistudio.google.com/api-keys" target="_blank" rel="noopener">Google AI Studio (aistudio.google.com/api-keys)</a> and sign in with any Google account.</li>
+            <li>Click <strong>Create API key</strong> in the top-right corner and select or create a Google Cloud project when prompted (no billing or credit card required for the free tier).</li>
+            <li>Copy the generated API key string.</li>
+            <li>Open <strong>VoxPlayer</strong>, go to <strong>Settings</strong>, paste the key into the <strong>Gemini API Key</strong> field, and save.</li>
+        </ol>
+        <p class="note">
+            PRIVACY NOTE: Your key is stored locally on your device and sent only directly to Google's Gemini API when you trigger an on-demand video scan.
+        </p>
+    </section>
+
     <footer>
         INSTALL NOTE: Enable "Install unknown apps" for your browser when prompted by Android to sideload the signed APK.
     </footer>
