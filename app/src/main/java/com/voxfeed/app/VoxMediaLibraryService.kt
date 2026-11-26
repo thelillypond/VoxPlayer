@@ -87,7 +87,11 @@ class VoxMediaLibraryService : MediaLibraryService() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) AudioSpectrum.stopDecay() else AudioSpectrum.startDecay()
             }
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                handlePlayerError(player, error)
+            }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                retriedMediaId = null
                 val extras = mediaItem?.requestMetadata?.extras ?: return
                 val intent = if (extras.getBoolean(EXTRA_MUSIC, false)) {
                     // Music track: notification returns to the app (MainActivity), not the video player.
@@ -106,6 +110,44 @@ class VoxMediaLibraryService : MediaLibraryService() {
                 )
             }
         })
+    }
+
+    /** Media id of the item that already got one automatic stream-URL refresh (so we never loop). */
+    private var retriedMediaId: String? = null
+
+    private fun isExpiredStreamError(error: androidx.media3.common.PlaybackException): Boolean {
+        var t: Throwable? = error
+        while (t != null) {
+            if (t is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException && (t.responseCode == 403 || t.responseCode == 410)) return true
+            if (t.javaClass.simpleName == "SourceException") return true
+            t = t.cause
+        }
+        return error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
+    }
+
+    /**
+     * Uncached streamed track failed (typically an expired googlevideo URL): drop the cached URL so the resolver
+     * re-extracts a fresh one from the stored sourceUrl, then retry once from the same position. Otherwise skip.
+     */
+    private fun handlePlayerError(player: androidx.media3.common.Player, error: androidx.media3.common.PlaybackException) {
+        val item = player.currentMediaItem
+        val extras = item?.requestMetadata?.extras
+        val mediaId = item?.mediaId
+        val streamed = extras?.getBoolean(EXTRA_MUSIC, false) == true && !extras.getBoolean(EXTRA_CACHED, false)
+        if (streamed && mediaId != null && retriedMediaId != mediaId && isExpiredStreamError(error)) {
+            retriedMediaId = mediaId
+            val pos = player.currentPosition.coerceAtLeast(0L)
+            YouTubeResolver.invalidateAll()
+            player.seekTo(player.currentMediaItemIndex, pos)
+            player.prepare()
+            player.play()
+            return
+        }
+        if (player.hasNextMediaItem()) {
+            player.seekToNextMediaItem()
+            player.prepare()
+            player.play()
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = mediaSession
@@ -143,6 +185,8 @@ class VoxMediaLibraryService : MediaLibraryService() {
     private object YouTubeResolver : androidx.media3.datasource.ResolvingDataSource.Resolver {
         private val cache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
         private const val TTL_MS = 90L * 60 * 1000
+
+        fun invalidateAll() = cache.clear()
 
         override fun resolveDataSpec(dataSpec: androidx.media3.datasource.DataSpec): androidx.media3.datasource.DataSpec {
             val host = dataSpec.uri.host?.lowercase() ?: return dataSpec

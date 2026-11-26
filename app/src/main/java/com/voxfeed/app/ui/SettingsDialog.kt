@@ -231,7 +231,7 @@ fun SettingsDialog(
 
         AppLabel("Backup & Restore", Palette.Amber, 13.sp)
         ActionButton("Export Backup (.json)", { exportLauncher.launch("voxplayer-backup.json") }, Modifier.fillMaxWidth(), enabled = !working)
-        ActionButton("Import Backup / OPML", { importLauncher.launch(arrayOf("*/*")) }, Modifier.fillMaxWidth(), enabled = !working)
+        ActionButton("Import Backup (.json)", { importLauncher.launch(arrayOf("*/*")) }, Modifier.fillMaxWidth(), enabled = !working)
         if (status.isNotEmpty()) Text(status, color = Palette.Accent, fontSize = 12.sp)
 
         ActionButton("Close", onDismiss, Modifier.fillMaxWidth())

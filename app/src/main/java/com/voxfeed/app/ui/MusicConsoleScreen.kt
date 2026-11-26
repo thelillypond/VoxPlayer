@@ -324,6 +324,15 @@ private fun MusicConsoleMain(onExit: () -> Unit, activeId: Long, setActiveId: (L
                 "Audio Deck", Modifier.weight(1f).padding(horizontal = 6.dp), color = Palette.Text,
                 fontFamily = Heavy, fontWeight = FontWeight.Black, fontSize = 20.sp, maxLines = 1
             )
+            if (dl.isNotEmpty()) {
+                val avg = dl.values.sum() / dl.size
+                Text(
+                    "\u2193 ${dl.size} caching \u00B7 $avg%",
+                    Modifier.padding(end = 6.dp).border(1.dp, Palette.Accent, androidx.compose.foundation.shape.RoundedCornerShape(50))
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                    color = Palette.Accent, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1
+                )
+            }
             ActionButton("Library", { openLibrary() }, accent = true, height = 36.dp, size = 12, hPad = 10.dp, vPad = 4.dp)
             Spacer(Modifier.width(6.dp))
             ActionButton("Videos", { onExit() }, height = 36.dp, size = 12, hPad = 10.dp, vPad = 4.dp)
@@ -730,6 +739,11 @@ private fun ExtractDialog(
                             if (importing) "Matching..." else "Import ${p.tracks.size} Tracks", { startImport() }, Modifier.fillMaxWidth(),
                             enabled = !importing && p.tracks.isNotEmpty() && (newMode && newName.isNotBlank() || !newMode && targetId != null), accent = true, height = 38.dp, size = 12
                         )
+                        if (importDone) Text(
+                            "Ready to stream now. Optional offline downloads run in the background\u2014you can close this window.",
+                            color = Palette.Text, fontSize = 12.sp
+                        )
+                        if (importDone) ActionButton("Done", onDismiss, Modifier.fillMaxWidth(), accent = true, height = 42.dp, size = 14)
                         if (importDone) ActionButton(
                             if (cachingStarted) "Caching ${importedRows.size} track(s)..." else "Cache All (${importedRows.size})",
                             {

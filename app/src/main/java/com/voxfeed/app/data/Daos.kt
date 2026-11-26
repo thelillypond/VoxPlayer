@@ -181,6 +181,9 @@ interface VideoPlaylistDao {
 
     @Insert suspend fun insertPlaylist(p: VideoPlaylistEntity): Long
 
+    @Query("SELECT * FROM video_playlist_items")
+    suspend fun getAllItems(): List<VideoPlaylistItemEntity>
+
     @Query("UPDATE video_playlists SET name = :name WHERE id = :id")
     suspend fun rename(id: Long, name: String)
 
