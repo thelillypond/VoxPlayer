@@ -53,7 +53,7 @@ internal fun FavStar(isFavorite: Boolean) {
 internal fun GenrePill(genre: String, onClick: () -> Unit) {
     val none = genre == MusicDao.GENRE_NONE
     if (none) {
-        Text("?", color = Palette.Dim, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1, modifier = Modifier.clickable(onClick = onClick).padding(horizontal = 2.dp))
+        Text("?", color = Palette.Dim, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1, modifier = Modifier.border(1.dp, Palette.Dim).clickable(onClick = onClick).padding(horizontal = 3.dp))
         return
     }
     val c = if (none) Palette.Dim else Palette.Amber

@@ -67,6 +67,10 @@ interface MusicDao {
     @Query("UPDATE music_tracks SET localUri = :uri WHERE id = :trackId")
     suspend fun setLocalUri(trackId: Long, uri: String?)
 
+    /** Cache completion: flips every copy of the same source (other playlists, favourites) so all badges update. */
+    @Query("UPDATE music_tracks SET localUri = :uri WHERE sourceUrl = :url AND localUri IS NULL")
+    suspend fun setLocalUriBySource(url: String, uri: String)
+
     @Query("UPDATE music_tracks SET isFavorite = :fav WHERE sourceUrl = :url")
     suspend fun setFavoriteBySource(url: String, fav: Boolean)
 

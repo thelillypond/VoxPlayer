@@ -220,6 +220,8 @@ private fun MusicConsoleMain(onExit: () -> Unit, activeId: Long, setActiveId: (L
         val base = if (favMode) allTracks.filter { it.isFavorite }.distinctBy { it.sourceUrl } else allTracks.filter { it.playlistId == activePid }
         genreFilter?.let { g -> base.filter { it.genre == g } } ?: base
     }
+    // Live cached-file lookup: any copy of a source being cached flips the badge for every row.
+    val cachedBySource = remember(allTracks) { allTracks.filter { it.localUri != null }.associate { it.sourceUrl to it.localUri!! } }
     val counts = remember(allTracks) { allTracks.groupingBy { it.playlistId }.eachCount() }
     val uniqueCount = remember(allTracks) { allTracks.distinctBy { it.sourceUrl }.size }
     val dl by MusicDownloader.progress.collectAsState()
@@ -338,7 +340,7 @@ private fun MusicConsoleMain(onExit: () -> Unit, activeId: Long, setActiveId: (L
                     itemsIndexed(tracks, key = { _, t -> t.id }) { i, t ->
                         val current = deck.mediaId == "music:${t.id}"
                         val pct = dl[t.id]
-                        val cached = t.localUri != null
+                        val cached = t.localUri != null || cachedBySource.containsKey(t.sourceUrl)
                         Row(
                             Modifier.fillMaxWidth().background(if (current) Palette.Bg else Color.Transparent)
                                 .combinedClickable(onClick = { playSingle(i) }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); menuTrack = t })
@@ -366,7 +368,7 @@ private fun MusicConsoleMain(onExit: () -> Unit, activeId: Long, setActiveId: (L
                                 }
                             }
                             Box(
-                                Modifier.defaultMinSize(minWidth = 36.dp, minHeight = 40.dp).clickable { enqueue(t) },
+                                Modifier.defaultMinSize(minWidth = 36.dp, minHeight = 32.dp).clip(ButtonShape).border(1.dp, Palette.Border, ButtonShape).clickable { enqueue(t) },
                                 contentAlignment = Alignment.Center
                             ) { Text("+ Queue", color = Palette.Accent, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 3.dp)) }
                             if (!cached) Box(

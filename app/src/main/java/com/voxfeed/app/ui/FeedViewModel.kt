@@ -113,7 +113,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     ListFilter.Feed -> dao.observeAll().map { all ->
                         // Display-time window applies to the feed only; saved lists are never hidden by it.
                         val now = System.currentTimeMillis()
-                        all.filter { LookbackFilter.passes(it.publishedAt, hours, now) && it.channelId !in hidden }
+                        all.filter { LookbackFilter.passes(it.publishedAt, hours, now) && it.channelId !in hidden && it.channelId != AdHocVideo.CHANNEL_ID }
                     }
                     ListFilter.Favorites -> dao.observeFavorites()
                     ListFilter.Downloads -> dao.observeArchived()
@@ -158,6 +158,75 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         busy.value = null
     }
 
+    // -- Single-video link (ad-hoc, no subscription) --
+    sealed interface AdHocState {
+        data class Loading(val videoId: String) : AdHocState
+        data class Ready(val meta: AdHocMeta) : AdHocState
+        data class Failed(val message: String) : AdHocState
+    }
+    val adHoc = MutableStateFlow<AdHocState?>(null)
+    /** Set once the user taps Subscribe on the sheet, so the sheet can show the result right away. */
+    private var adHocJob: kotlinx.coroutines.Job? = null
+
+    fun openVideoLink(videoId: String) {
+        adHocJob?.cancel()
+        adHoc.value = AdHocState.Loading(videoId)
+        adHocJob = viewModelScope.launch {
+            adHoc.value = runCatching { AdHocVideo.fetch(videoId) }
+                .fold({ AdHocState.Ready(it) }, { AdHocState.Failed(it.message ?: it.javaClass.simpleName) })
+        }
+    }
+
+    fun dismissAdHoc() { adHocJob?.cancel(); adHoc.value = null }
+
+    /** Persists the pasted video (if needed) and hands back the stored row. */
+    fun withAdHocVideo(meta: AdHocMeta, block: (VideoEntity) -> Unit) = viewModelScope.launch {
+        runCatching { repo.ensureAdHocVideo(meta) }
+            .onSuccess(block)
+            .onFailure { message.value = "Could not save video: ${it.message}" }
+    }
+
+    fun subscribeFromAdHoc(meta: AdHocMeta) = viewModelScope.launch {
+        val subFeedId = (channelFilter.value as? ChannelFilter.Group)?.id
+            ?: subFeeds.value.firstOrNull()?.id ?: db.subFeedDao().getAll().firstOrNull()?.id
+            ?: db.subFeedDao().insert(SubFeedEntity(name = "General", sortOrder = 0))
+        repo.ensureAdHocVideo(meta)
+        runCatching { repo.subscribeToVideoChannel(meta, subFeedId) }
+            .onSuccess { message.value = "Subscribed to ${meta.channelName}" }
+            .onFailure { message.value = "Subscribe failed: ${it.message}" }
+    }
+
+    /** Caches the video's audio straight into the Audio Deck's default playlist. */
+    fun extractToAudioDeck(meta: AdHocMeta) = viewModelScope.launch {
+        val dao = db.musicDao()
+        val pl = dao.getOrCreatePlaylist(MusicDao.DEFAULT_PLAYLIST)
+        val url = "https://www.youtube.com/watch?v=${meta.videoId}"
+        if (dao.countBySource(pl.id, url) == 0) dao.appendTracks(
+            pl.id, listOf(
+                MusicTrackEntity(
+                    playlistId = pl.id, title = meta.title, artist = meta.channelName,
+                    durationMs = meta.durationSeconds * 1000, sourceUrl = url, thumbnailUrl = meta.thumbnailUrl,
+                    localUri = null, position = 0
+                )
+            )
+        )
+        val row = dao.getTracks(pl.id).firstOrNull { it.sourceUrl == url } ?: return@launch
+        if (row.localUri != null) message.value = "Already in Audio Deck (cached)"
+        else { MusicDownloader.enqueue(getApplication(), row, pl.name); message.value = "Caching audio to ${pl.name}..." }
+    }
+
+    fun digestFlow(videoId: String, depth: SummaryDepth): Flow<String?> = db.digestDao().observe(videoId, depth.name)
+
+    suspend fun generateDigest(meta: AdHocMeta, depth: SummaryDepth): DigestResult {
+        repo.ensureAdHocVideo(meta) // FK parent for the cached digest
+        return try {
+            AiSummaryManager.generate(PollPrefs.geminiKey(getApplication()), meta.videoId, meta.title, meta.description, depth, db.digestDao())
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            DigestResult.NetworkOrApiError(e.message ?: e.javaClass.simpleName)
+        }
+    }
     fun addSubFeed(name: String) = viewModelScope.launch {
         val dao = db.subFeedDao()
         dao.insert(SubFeedEntity(name = name.trim(), sortOrder = dao.maxSortOrder() + 1))

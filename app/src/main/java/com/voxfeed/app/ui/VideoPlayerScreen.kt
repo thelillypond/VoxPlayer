@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -53,7 +54,8 @@ private val SPEEDS = floatArrayOf(1.0f, 1.25f, 1.5f, 2.0f)
 @Composable
 private fun PlayerButton(
     label: String, onClick: () -> Unit, modifier: Modifier = Modifier,
-    translucent: Boolean = false, fontSize: Int = 12, textColor: Color = Palette.Text
+    translucent: Boolean = false, fontSize: Int = 12, textColor: Color = Palette.Text,
+    trailingCheck: Boolean = false
 ) {
     val shape = RoundedCornerShape(8.dp)
     Box(
@@ -61,11 +63,17 @@ private fun PlayerButton(
             .border(1.dp, Palette.Border, shape).clickable(onClick = onClick).padding(horizontal = 6.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            label, color = textColor, fontFamily = Heavy, fontWeight = FontWeight.Black,
-            fontSize = fontSize.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                label, color = textColor, fontFamily = Heavy, fontWeight = FontWeight.Black,
+                fontSize = fontSize.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center, modifier = Modifier.weight(1f, fill = false)
+            )
+            if (trailingCheck) androidx.compose.material3.Icon(
+                androidx.compose.material.icons.Icons.Filled.Check, null, tint = textColor,
+                modifier = Modifier.size((fontSize + 4).dp)
+            )
+        }
     }
 }
 
@@ -92,22 +100,24 @@ private fun TopButtons(
     val subsLabel = when { !subsAvailable -> "Captions: N/A"; subsEnabled -> "Captions: On"; else -> "Captions: Off" }
     val summaryLabel = if (summaryCached) "AI Summary ✓" else "AI Summary"
     val summaryColor = if (summaryCached) Palette.Accent else Palette.Text
+    val archiveColor = if (archiveState == ArchiveUiState.ARCHIVED) Palette.Accent else Palette.Text
+    val subsColor = if (subsAvailable && subsEnabled) Palette.Accent else Color.White
     if (inline) {
         Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PlayerButton("Close", onClose, Modifier.weight(1f).height(42.dp), translucent)
-            PlayerButton(archiveLabel, archiveClick, Modifier.weight(1f).height(42.dp), translucent)
+            PlayerButton(archiveLabel, archiveClick, Modifier.weight(1f).height(42.dp), translucent, textColor = archiveColor, trailingCheck = archiveState == ArchiveUiState.ARCHIVED)
             PlayerButton(summaryLabel, onSummary, Modifier.weight(1f).height(42.dp), translucent, textColor = summaryColor)
-            PlayerButton(subsLabel, onToggleSubs, Modifier.weight(1f).height(42.dp), translucent)
+            PlayerButton(subsLabel, onToggleSubs, Modifier.weight(1f).height(42.dp), translucent, textColor = subsColor)
         }
     } else {
         Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PlayerButton("Close", onClose, Modifier.weight(1f).height(42.dp), translucent)
-                PlayerButton(archiveLabel, archiveClick, Modifier.weight(1f).height(42.dp), translucent)
+                PlayerButton(archiveLabel, archiveClick, Modifier.weight(1f).height(42.dp), translucent, textColor = archiveColor, trailingCheck = archiveState == ArchiveUiState.ARCHIVED)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PlayerButton(summaryLabel, onSummary, Modifier.weight(1f).height(38.dp), translucent, textColor = summaryColor)
-                PlayerButton(subsLabel, onToggleSubs, Modifier.weight(1f).height(38.dp), translucent)
+                PlayerButton(subsLabel, onToggleSubs, Modifier.weight(1f).height(38.dp), translucent, textColor = subsColor)
             }
         }
     }

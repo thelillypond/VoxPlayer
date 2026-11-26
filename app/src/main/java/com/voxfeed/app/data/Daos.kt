@@ -31,22 +31,22 @@ interface ChannelDao {
     @Query("UPDATE channels SET title = :title, lastCheckedAt = :time WHERE channelId = :id")
     suspend fun updateChecked(id: String, title: String, time: Long)
 
-    @Query("SELECT * FROM channels")
+    @Query("SELECT * FROM channels WHERE channelId != 'ADHOC'")
     suspend fun getAll(): List<ChannelEntity>
 
-    @Query("SELECT * FROM channels WHERE alertsEnabled = 1")
+    @Query("SELECT * FROM channels WHERE alertsEnabled = 1 AND channelId != 'ADHOC'")
     suspend fun getAlertEnabled(): List<ChannelEntity>
 
     @Query("UPDATE channels SET alertsEnabled = :enabled WHERE channelId = :id")
     suspend fun setAlertsEnabled(id: String, enabled: Boolean)
 
-    @Query("SELECT * FROM channels WHERE subFeedId = :subFeedId")
+    @Query("SELECT * FROM channels WHERE subFeedId = :subFeedId AND channelId != 'ADHOC'")
     suspend fun getBySubFeed(subFeedId: Long): List<ChannelEntity>
 
     @Query("SELECT * FROM channels WHERE channelId = :id")
     suspend fun get(id: String): ChannelEntity?
 
-    @Query("SELECT * FROM channels ORDER BY title COLLATE NOCASE")
+    @Query("SELECT * FROM channels WHERE channelId != 'ADHOC' ORDER BY title COLLATE NOCASE")
     fun observeAll(): Flow<List<ChannelEntity>>
 
     @Query("DELETE FROM channels WHERE channelId = :id")
@@ -106,6 +106,10 @@ interface VideoDao {
 
     @Query("UPDATE videos SET isFavorite = :fav WHERE videoId = :id")
     suspend fun setFavorite(id: String, fav: Boolean)
+
+    /** Re-homes an ad-hoc video under its (newly subscribed) channel. */
+    @Query("UPDATE videos SET channelId = :channelId, subFeedId = :subFeedId WHERE videoId = :id")
+    suspend fun moveVideo(id: String, channelId: String, subFeedId: Long)
 
     @Query("SELECT COUNT(*) FROM videos")
     suspend fun count(): Int

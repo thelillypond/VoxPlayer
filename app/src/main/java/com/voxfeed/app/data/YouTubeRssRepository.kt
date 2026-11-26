@@ -59,6 +59,37 @@ class YouTubeRssRepository(private val db: VoxDatabase, context: Context) {
         return id
     }
 
+    /**
+     * Makes sure [meta] exists as a video row so playlists / summaries / playback state can reference it.
+     * Unsubscribed channels park the video under the hidden ADHOC channel. Returns the stored row.
+     */
+    suspend fun ensureAdHocVideo(meta: AdHocMeta): VideoEntity = withContext(Dispatchers.IO) {
+        videoDao.get(meta.videoId)?.let { return@withContext it }
+        val subDao = db.subFeedDao()
+        val subFeedId = (subDao.getAll().firstOrNull()
+            ?: subDao.insert(SubFeedEntity(name = "General", sortOrder = 0)).let { SubFeedEntity(it, "General", 0) }).id
+        val real = meta.channelId?.let { channelDao.get(it) }
+        val owner = real ?: run {
+            channelDao.insertIgnore(ChannelEntity(AdHocVideo.CHANNEL_ID, subFeedId, "Single videos", true, 0, alertsEnabled = false))
+            channelDao.get(AdHocVideo.CHANNEL_ID)!!
+        }
+        val v = VideoEntity(
+            videoId = meta.videoId, channelId = owner.channelId, subFeedId = owner.subFeedId,
+            title = meta.title, channelTitle = meta.channelName, thumbnailUrl = meta.thumbnailUrl,
+            publishedAt = System.currentTimeMillis(), description = meta.description
+        )
+        videoDao.insertAll(listOf(v))
+        videoDao.get(meta.videoId) ?: v
+    }
+
+    /** Subscribes to the video's channel via RSS and re-homes the pasted video under it. Returns the channel id. */
+    suspend fun subscribeToVideoChannel(meta: AdHocMeta, subFeedId: Long, excludeShorts: Boolean = true): String {
+        val channelId = meta.channelId ?: throw IOException("Channel id unavailable for this video")
+        addChannel(channelId, subFeedId, excludeShorts)
+        videoDao.get(meta.videoId)?.takeIf { it.channelId == AdHocVideo.CHANNEL_ID }
+            ?.let { videoDao.moveVideo(meta.videoId, channelId, subFeedId) }
+        return channelId
+    }
     suspend fun refreshAll(): Int = refresh(channelDao.getAll())
 
     class AlertScan(val failed: Int, val total: Int, val newVideos: List<VideoEntity>)

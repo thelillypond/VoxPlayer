@@ -95,7 +95,9 @@ object MusicDownloader {
                 }.getOrDefault(false)
                 if (!tagged) tmp.inputStream().use { it.copyTo(out) }
             }
-            VoxDatabase.get(ctx).musicDao().setLocalUri(t.id, uri.toString())
+            val dao = VoxDatabase.get(ctx).musicDao()
+            dao.setLocalUri(t.id, uri.toString())
+            dao.setLocalUriBySource(t.sourceUrl, uri.toString())
         } finally {
             tmp.delete()
         }

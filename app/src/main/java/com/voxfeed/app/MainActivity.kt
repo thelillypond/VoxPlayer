@@ -39,6 +39,13 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import coil.compose.AsyncImage
+import com.voxfeed.app.data.AdHocMeta
+import com.voxfeed.app.data.AdHocVideo
+import com.voxfeed.app.data.AiSummaryManager
+import com.voxfeed.app.data.DigestResult
+import com.voxfeed.app.data.SummaryDepth
+import com.voxfeed.app.data.failureMessage
+import com.voxfeed.app.worker.PollPrefs
 import com.voxfeed.app.data.ChannelEntity
 import com.voxfeed.app.data.MusicPlaylistEntity
 import com.voxfeed.app.data.SubFeedEntity
@@ -122,6 +129,7 @@ fun VoxApp(vm: FeedViewModel) {
     val playlists by vm.videoPlaylists.collectAsStateWithLifecycle()
     val counts by vm.playlistCounts.collectAsStateWithLifecycle()
     val membership by vm.playlistMembership.collectAsStateWithLifecycle()
+    val adHocState by vm.adHoc.collectAsStateWithLifecycle()
 
     var showAddChannel by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -251,11 +259,22 @@ fun VoxApp(vm: FeedViewModel) {
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
     }
 
+    adHocState?.let { st ->
+        VideoLinkSheet(
+            state = st, vm = vm, subscribedIds = channels.map { it.channelId }.toSet(),
+            onDismiss = { vm.dismissAdHoc() },
+            onAddToPlaylist = { v -> playlistTarget = v }
+        )
+    }
     // ── Dialogs ──
     if (showAddChannel) AddChannelSheet(
         subFeeds, (channelFilter as? ChannelFilter.Group)?.id,
         onDismiss = { showAddChannel = false },
-        onSave = { input, sub, ex -> vm.addChannel(input, sub, ex); showAddChannel = false },
+        onSave = { input, sub, ex ->
+            val vid = AdHocVideo.videoIdOf(input)
+            if (vid != null) vm.openVideoLink(vid) else vm.addChannel(input, sub, ex)
+            showAddChannel = false
+        },
         onAddCategory = vm::addSubFeed
     )
     if (showSettings) SettingsDialog(
@@ -453,10 +472,13 @@ private fun VideoCard(
                 )
             }
             if (v.isArchived) {
-                Text(
-                    "Downloaded", Modifier.padding(top = 3.dp).border(1.dp, Palette.Accent, RoundedCornerShape(4.dp)).padding(horizontal = 4.dp),
-                    color = Palette.Accent, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1
-                )
+                Row(
+                    Modifier.padding(top = 3.dp).border(1.dp, Palette.Accent, RoundedCornerShape(4.dp)).padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text("Downloaded", color = Palette.Accent, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1)
+                    Icon(Icons.Filled.Check, null, tint = Palette.Accent, modifier = Modifier.size(11.dp))
+                }
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -520,7 +542,9 @@ fun AddChannelSheet(
 
     AppFormDialog(onDismiss) {
         AppLabel("Add Channel", Palette.Text, 18.sp)
-        NameField(input, { input = it }, "@handle, URL or channel ID")
+        NameField(input, { input = it }, "@handle, channel URL, or a single video link")
+        val isVideoLink = AdHocVideo.videoIdOf(input) != null
+        if (isVideoLink) Text("Video link detected. You can watch, summarize or save it without subscribing.", color = Palette.Accent, fontFamily = Mono, fontSize = 11.sp)
         AppLabel("Group", Palette.Dim, 11.sp)
         if (subFeeds.isEmpty()) Text("No groups yet. Create one below.", color = Palette.Dim, fontSize = 12.sp)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -536,8 +560,8 @@ fun AddChannelSheet(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ActionButton("Cancel", onDismiss, Modifier.weight(1f))
             ActionButton(
-                "Add Channel", { selected?.let { onSave(input, it.id, excludeShorts) } },
-                Modifier.weight(2f), enabled = input.isNotBlank() && selected != null, accent = true
+                if (isVideoLink) "Open Video" else "Add Channel", { onSave(input, selected?.id ?: -1L, excludeShorts) },
+                Modifier.weight(2f), enabled = input.isNotBlank() && (selected != null || isVideoLink), accent = true
             )
         }
     }
