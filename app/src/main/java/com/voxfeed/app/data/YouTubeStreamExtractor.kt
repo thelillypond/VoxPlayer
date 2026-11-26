@@ -172,7 +172,7 @@ object YouTubeStreamExtractor {
             throw IllegalStateException("No playable streams found")
         }
 
-    /** Audio-only resolution of any YouTube URL (or bare 11-char id) for the Mek-Amp music console. */
+    /** Audio-only resolution of any YouTube URL (or bare 11-char id) for the audio deck. */
     suspend fun resolveAudioOnly(urlOrId: String, bestQuality: Boolean = false): ResolvedAudio = withContext(Dispatchers.IO) {
         ensureInit()
         val input = urlOrId.trim()
@@ -221,7 +221,7 @@ object YouTubeStreamExtractor {
         (if (ttml) parseTtml(body) else parseVtt(body)).sortedBy { it.startMs }
     }
 
-    /** Upper bound on the raw fetched transcript; mode-specific condensing happens in CogitatorSummaryManager. */
+    /** Upper bound on the raw fetched transcript; mode-specific condensing happens in AiSummaryManager. */
     const val TRANSCRIPT_CAP = 120_000
     private const val STAMP_EVERY_MS = 20_000L
 

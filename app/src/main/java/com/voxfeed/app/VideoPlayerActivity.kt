@@ -37,9 +37,9 @@ import android.net.Uri
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import androidx.compose.runtime.snapshotFlow
-import com.voxfeed.app.ui.PictFeedScreen
-import com.voxfeed.app.ui.IntelState
-import com.voxfeed.app.data.CogitatorSummaryManager
+import com.voxfeed.app.ui.VideoPlayerScreen
+import com.voxfeed.app.ui.SummaryState
+import com.voxfeed.app.data.AiSummaryManager
 import com.voxfeed.app.data.DigestResult
 import com.voxfeed.app.data.failureMessage
 import com.voxfeed.app.worker.PollPrefs
@@ -48,16 +48,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.util.Log
+import android.content.Intent
 
 /**
  * Dedicated top-level window for the native player: Media3 ExoPlayer fed by NewPipeExtractor,
- * with a fully custom grimdark HUD (no YouTube web UI).
+ * with a fully custom player UI (no YouTube web UI).
  */
-class PictFeedActivity : ComponentActivity() {
+class VideoPlayerActivity : ComponentActivity() {
     private var controller: MediaController? by mutableStateOf<MediaController?>(null)
     private var controllerFuture: ListenableFuture<MediaController>? = null
 
-    private var voxFilterEnabled by mutableStateOf(true)
+    private var queue by mutableStateOf<List<String>>(emptyList())
     private var ended by mutableStateOf(false)
     private var landscape by mutableStateOf(false)
     private var streamState by mutableStateOf<StreamState>(StreamState.Resolving)
@@ -68,7 +69,7 @@ class PictFeedActivity : ComponentActivity() {
     private var currentCue by mutableStateOf<String?>(null)
     private var chapters by mutableStateOf<List<VideoChapter>>(emptyList())
     private var voxDigest by mutableStateOf<String?>(null)
-    private var intelState by mutableStateOf<IntelState>(IntelState.Idle)
+    private var summaryState by mutableStateOf<SummaryState>(SummaryState.Idle)
     // Initialised in onCreate: PollPrefs needs a Context, which is not attached during field initialisation.
     private var summaryDepth by mutableStateOf(com.voxfeed.app.data.SummaryDepth.BRIEF)
     private val db by lazy { VoxDatabase.get(applicationContext) }
@@ -84,6 +85,7 @@ class PictFeedActivity : ComponentActivity() {
         if (videoId.isNullOrBlank()) { finish(); return }
         val title = intent.getStringExtra(VIDEO_TITLE).orEmpty()
         val description = intent.getStringExtra(VIDEO_DESCRIPTION).orEmpty()
+        queue = intent.getStringArrayExtra(QUEUE_IDS)?.toList().orEmpty()
 
         lifecycleScope.launch { startPlayback(videoId, title, description) }
 
@@ -92,10 +94,9 @@ class PictFeedActivity : ComponentActivity() {
             Box(Modifier.fillMaxSize()) {
             if (player == null) {
                 Box(Modifier.fillMaxSize().background(Color.Black))
-            } else PictFeedScreen(
+            } else VideoPlayerScreen(
                 player = player, state = streamState, title = title, description = description,
-                landscape = landscape, voxFilterEnabled = voxFilterEnabled, ended = ended,
-                onToggleFilter = { voxFilterEnabled = !voxFilterEnabled },
+                landscape = landscape, ended = ended, queueRemaining = queue.size,
                 onClose = { stopPlayback(); finish() },
                 archiveState = archiveState,
                 archivePercent = archivePercent,
@@ -108,7 +109,7 @@ class PictFeedActivity : ComponentActivity() {
                 onPurge = {
                     lifecycleScope.launch {
                         stopPlayback()
-                        runCatching { archiveManager.deleteArchive(videoId) } // posts DATA-SLATE PURGED banner
+                        runCatching { archiveManager.deleteArchive(videoId) } // posts a "Download deleted" banner
                         kotlinx.coroutines.delay(1800)
                         finish()
                     }
@@ -122,16 +123,16 @@ class PictFeedActivity : ComponentActivity() {
                 },
                 chapters = chapters,
                 voxDigest = voxDigest,
-                intelState = intelState,
+                summaryState = summaryState,
                 summaryDepth = summaryDepth,
                 onDepthChange = { d -> summaryDepth = d; PollPrefs.setSummaryDepth(applicationContext, d.name) },
                 onGenerateDigest = {
-                    if (intelState !is IntelState.Loading) {
-                        intelState = IntelState.Loading
+                    if (summaryState !is SummaryState.Loading) {
+                        summaryState = SummaryState.Loading
                         val depth = summaryDepth // the digest is cached under the depth it was requested with
                         lifecycleScope.launch {
                             val result = try {
-                                CogitatorSummaryManager.generate(
+                                AiSummaryManager.generate(
                                     PollPrefs.geminiKey(applicationContext), videoId, title, description, depth, db.digestDao()
                                 )
                             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -140,23 +141,23 @@ class PictFeedActivity : ComponentActivity() {
                                 DigestResult.NetworkOrApiError(e.message ?: e.javaClass.simpleName)
                             }
                             // On success the digest arrives through the Room observer below.
-                            intelState = if (result is DigestResult.Success) IntelState.Idle
-                            else IntelState.Failed(result.failureMessage())
+                            summaryState = if (result is DigestResult.Success) SummaryState.Idle
+                            else SummaryState.Failed(result.failureMessage())
                         }
                     }
                 }
             )
-            com.voxfeed.app.ui.CogitatorBannerHost()
+            com.voxfeed.app.ui.StatusBannerHost()
             }
         }
         applyOrientation(resources.configuration)
 
-        // Mirror Room + live download progress into the ARCHIVE button.
+        // Mirror Room + live download progress into the Download button.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
                     archiveManager.errors.collect {
-                        com.voxfeed.app.ui.CogitatorBanner.show(it)
+                        com.voxfeed.app.ui.StatusBanner.show(it)
                     }
                 }
                 launch {
@@ -191,18 +192,41 @@ class PictFeedActivity : ComponentActivity() {
 
     }
 
+    /** Playlist playback: when this video ends, open the next queued video (skipping ones that no longer exist). */
+    private fun playNext() {
+        val pending = queue
+        if (pending.isEmpty()) return
+        queue = emptyList() // guard against repeated end events
+        lifecycleScope.launch {
+            var rest = pending
+            while (rest.isNotEmpty()) {
+                val v = withContext(Dispatchers.IO) { db.videoDao().get(rest.first()) }
+                rest = rest.drop(1)
+                if (v == null) continue
+                db.videoDao().setRead(v.videoId, true)
+                startActivity(
+                    Intent(this@VideoPlayerActivity, VideoPlayerActivity::class.java)
+                        .putExtra(VIDEO_ID, v.videoId).putExtra(VIDEO_TITLE, v.title)
+                        .putExtra(VIDEO_DESCRIPTION, v.description).putExtra(QUEUE_IDS, rest.toTypedArray())
+                )
+                finish()
+                return@launch
+            }
+        }
+    }
+
     private fun buildItem(videoId: String, title: String, description: String, uris: List<String>): MediaItem =
         MediaItem.Builder()
             .setMediaId(videoId)
             .setUri(uris.first())
-            .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist("VoxFeed").build())
+            .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist("VoxPlayer").build())
             .setRequestMetadata(
                 MediaItem.RequestMetadata.Builder()
                     .setExtras(VoxPlaybackService.extras(videoId, description, uris)).build()
             )
             .build()
 
-    /** Stops playback and clears the session (TERMINATE / purge). Back/Home leave playback running. */
+    /** Stops playback and clears the session (Close / delete download). Back/Home leave playback running. */
     private fun stopPlayback() {
         controller?.takeIf { it.isConnected }?.run { stop(); clearMediaItems() }
     }
@@ -251,6 +275,7 @@ class PictFeedActivity : ComponentActivity() {
             private var kick: kotlinx.coroutines.Job? = null
             override fun onPlaybackStateChanged(playbackState: Int) {
                 ended = playbackState == Player.STATE_ENDED
+                if (ended) playNext()
                 if (playbackState == Player.STATE_READY && player.playWhenReady) scheduleKick() else kick?.cancel()
             }
             /** First-frame kickstart: if still parked at 0 shortly after READY, nudge past the first keyframe. */
@@ -274,7 +299,7 @@ class PictFeedActivity : ComponentActivity() {
         Log.e(TAG, "Video start failed", e)
         val msg = e.message ?: e.javaClass.simpleName
         if (!attached) streamState = StreamState.Failed(msg)
-        android.widget.Toast.makeText(applicationContext, "SIGNAL FAULT: $msg", android.widget.Toast.LENGTH_LONG).show()
+        android.widget.Toast.makeText(applicationContext, "Playback error: $msg", android.widget.Toast.LENGTH_LONG).show()
     }
 
     /**
@@ -286,7 +311,7 @@ class PictFeedActivity : ComponentActivity() {
         try {
             val first = awaitController()
             if (first == null) {
-                streamState = StreamState.Failed("PLAYBACK SERVICE UNAVAILABLE")
+                streamState = StreamState.Failed("Playback service unavailable")
                 return
             }
             attached = first.currentMediaItem?.mediaId == videoId &&
@@ -359,5 +384,7 @@ class PictFeedActivity : ComponentActivity() {
         const val VIDEO_ID = "VIDEO_ID"
         const val VIDEO_TITLE = "VIDEO_TITLE"
         const val VIDEO_DESCRIPTION = "VIDEO_DESCRIPTION"
+        /** Ids of videos to play, in order, after the current one ends (playlist playback). */
+        const val QUEUE_IDS = "QUEUE_IDS"
     }
 }

@@ -12,7 +12,7 @@ import java.io.IOException
 import java.io.StringReader
 
 /** Portable backup / restore of subscriptions and read/favorite flags. Does not touch the Room schema. */
-class DataSlateManager(private val context: Context) {
+class BackupManager(private val context: Context) {
     private val db = VoxDatabase.get(context)
     private val channelIdRegex = Regex("channel_id=(UC[a-zA-Z0-9_-]{22})")
 
@@ -30,16 +30,16 @@ class DataSlateManager(private val context: Context) {
                 JSONObject().put("videoId", it.videoId).put("isRead", it.isRead).put("isFavorite", it.isFavorite)
             )
         }
-        val root = JSONObject().put("format", "voxfeed-data-slate").put("version", 1)
+        val root = JSONObject().put("format", "voxplayer-backup").put("version", 1)
             .put("exportedAt", System.currentTimeMillis())
             .put("channels", channels).put("videos", videos)
         val out = context.contentResolver.openOutputStream(uri, "wt")
             ?: throw IOException("Cannot open destination")
         out.use { it.write(root.toString(2).toByteArray(Charsets.UTF_8)) }
-        "SLATE ETCHED: ${channels.length()} CHANNELS, ${videos.length()} FLAGGED VIDEOS"
+        "Backup saved: ${channels.length()} channels, ${videos.length()} flagged videos"
     }
 
-    /** Imports a JSON data-slate or an OPML file (auto-detected). */
+    /** Imports a JSON backup (current or legacy format) or an OPML file (auto-detected). */
     suspend fun import(uri: Uri): String = withContext(Dispatchers.IO) {
         val text = context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
             ?: throw IOException("Cannot open source")
@@ -62,7 +62,7 @@ class DataSlateManager(private val context: Context) {
             }
         } else if (body.startsWith("<")) {
             channels = parseOpml(body)
-        } else throw IOException("Unrecognised data-slate format")
+        } else throw IOException("Unrecognised backup format")
 
         val subFeedId = db.subFeedDao().getAll().firstOrNull()?.id
             ?: db.subFeedDao().insert(SubFeedEntity(name = "Imported", sortOrder = 0))
@@ -74,7 +74,7 @@ class DataSlateManager(private val context: Context) {
         if (added > 0 || flags.isNotEmpty()) YouTubeRssRepository(db, context).refreshAll()
         var restored = 0
         flags.forEach { (id, r, f) -> restored += db.videoDao().setFlags(id, r, f) }
-        "SLATE LOADED: $added NEW / ${channels.size - added} KNOWN CHANNELS, $restored FLAGS RESTORED"
+        "Backup restored: $added new / ${channels.size - added} existing channels, $restored flags restored"
     }
 
     private fun rssUrl(id: String) = "https://www.youtube.com/feeds/videos.xml?channel_id=$id"

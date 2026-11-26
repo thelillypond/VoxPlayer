@@ -27,7 +27,7 @@ data class MusicTrackEntity(
     /** Normalized https://www.youtube.com/watch?v=ID */
     val sourceUrl: String,
     val thumbnailUrl: String?,
-    /** Non-null once downloaded (content:// or file:// URI) => STASHED. */
+    /** Non-null once downloaded (content:// or file:// URI) => cached offline. */
     val localUri: String?,
     val position: Int,
     @ColumnInfo(defaultValue = "0") val isFavorite: Boolean = false,
@@ -122,7 +122,7 @@ interface MusicDao {
             ?: MusicPlaylistEntity(name = name, createdAt = System.currentTimeMillis()).let { it.copy(id = insertPlaylist(it)) }
 
     @Query("SELECT * FROM music_tracks WHERE localUri IS NOT NULL")
-    suspend fun getStashedTracks(): List<MusicTrackEntity>
+    suspend fun getCachedTracks(): List<MusicTrackEntity>
 
     @Query("SELECT * FROM music_tracks WHERE playlistId = :playlistId ORDER BY position, id")
     suspend fun getTracks(playlistId: Long): List<MusicTrackEntity>
@@ -147,8 +147,8 @@ interface MusicDao {
 
     @Transaction
     suspend fun ensureDefaultPlaylist() {
-        renameIfPresent(LEGACY_DEFAULT, DEFAULT_PLAYLIST)
-        renameIfPresent(LEGACY_RESCAN, RESCAN_PLAYLIST)
+        LEGACY_DEFAULTS.forEach { renameIfPresent(it, DEFAULT_PLAYLIST) }
+        LEGACY_RESCANS.forEach { renameIfPresent(it, RESCAN_PLAYLIST) }
         if (playlistCount() == 0) insertPlaylist(MusicPlaylistEntity(name = DEFAULT_PLAYLIST, createdAt = System.currentTimeMillis()))
     }
 
@@ -156,10 +156,11 @@ interface MusicDao {
         const val GENRE_NONE = "UNCLASSIFIED"
         /** Virtual playlist id for the favourites view (never stored). */
         const val FAV_ID = -2L
-        const val DEFAULT_PLAYLIST = "VOX-ARCHIVE // DEFAULT"
-        const val LEGACY_DEFAULT = "WAAAGH! MIX"
-        const val LEGACY_RESCAN = "RESCANNED LOOT"
+        const val DEFAULT_PLAYLIST = "Default Playlist"
+        /** Names used by earlier builds; renamed in place on first launch. */
+        val LEGACY_DEFAULTS = listOf("VOX-ARCHIVE // DEFAULT")
+        val LEGACY_RESCANS = listOf("RECOVERED DATA-LOGS")
         /** Home for orphaned files that match no existing playlist folder. */
-        const val RESCAN_PLAYLIST = "RECOVERED DATA-LOGS"
+        const val RESCAN_PLAYLIST = "Recovered Files"
     }
 }

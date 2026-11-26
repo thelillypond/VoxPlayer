@@ -46,7 +46,7 @@ data class ScanResult(val title: String, val isPlaylist: Boolean, val tracks: Li
 object MusicExtractor {
     suspend fun scan(raw: String): ScanResult = withContext(Dispatchers.IO) {
         YouTubeStreamExtractor.ensureInit()
-        val p = MusicUrl.parse(raw) ?: throw IllegalArgumentException("NOT A YOUTUBE / YT MUSIC LINK")
+        val p = MusicUrl.parse(raw) ?: throw IllegalArgumentException("Not a YouTube or YouTube Music link")
         if (p.kind == MusicUrl.Kind.TRACK) {
             val info = StreamInfo.getInfo(p.url)
             ScanResult(
@@ -71,7 +71,7 @@ object MusicExtractor {
                 page = more.nextPage
             }
             ScanResult(
-                info.name.orEmpty().ifBlank { "IMPORTED ARCHIVE" }, true,
+                info.name.orEmpty().ifBlank { "Imported Playlist" }, true,
                 items.map {
                     ScannedTrack(
                         it.name.orEmpty(), it.uploaderName.orEmpty(), it.duration.coerceAtLeast(0) * 1000,

@@ -21,7 +21,7 @@ import java.io.IOException
 enum class AudioQuality(val label: String) { STANDARD("STANDARD M4A"), BEST("BEST AUDIO") }
 
 /**
- * Stashes tracks offline into Music/VoxFeed/<Playlist>/ via MediaStore (no storage permission),
+ * Saves tracks offline into Music/VoxFeed/<Playlist>/ via MediaStore (no storage permission),
  * tags M4A files with title/artist/album/cover, then flips MusicTrackEntity.localUri.
  * Runs in an app-lifetime scope, 2 downloads at a time.
  */
@@ -50,7 +50,7 @@ object MusicDownloader {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Cache failed for ${track.title}", e)
-                _messages.tryEmit("CACHE FAULT [${track.title.take(24)}]: ${e.message ?: e.javaClass.simpleName}".take(140))
+                _messages.tryEmit("Download error [${track.title.take(24)}]: ${e.message ?: e.javaClass.simpleName}".take(140))
             } finally {
                 synchronized(active) { active.remove(track.id) }
                 _progress.update { it - track.id }
@@ -60,7 +60,7 @@ object MusicDownloader {
 
     private suspend fun download(ctx: Context, t: MusicTrackEntity, playlist: String) {
         val audio = YouTubeStreamExtractor.resolveAudioOnly(t.sourceUrl, bestQuality = true) // always the highest averageBitrate stream
-        val tmp = File(ctx.cacheDir, "stash_${t.id}.tmp")
+        val tmp = File(ctx.cacheDir, "download_${t.id}.tmp")
         try {
             val req = okhttp3.Request.Builder().url(audio.audioUrl)
                 .header("User-Agent", YouTubeStreamExtractor.USER_AGENT).build()

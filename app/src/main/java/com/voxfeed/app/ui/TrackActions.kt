@@ -39,16 +39,13 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.sin
 
-private val CogPhosphor = Color(0xFF39FF14)
-private val CogSlate = Color(0xFF141712)
-private val CogBrass = Color(0xFFD4AF37)
 
-val GENRE_PRESETS = listOf("DNB", "JUNGLE", "REGGAE", "LORE", "SYNTH")
+val GENRE_PRESETS = listOf("DNB", "JUNGLE", "REGGAE", "PODCAST", "SYNTH")
 
-/** CogPhosphor-green star shown beside favourited tracks. */
+/** Accent-green star shown beside favourited tracks. */
 @Composable
 internal fun FavStar(isFavorite: Boolean) {
-    if (isFavorite) Text("★", color = CogPhosphor, fontFamily = Mono, fontWeight = FontWeight.Black, fontSize = 13.sp, modifier = Modifier.padding(end = 4.dp))
+    if (isFavorite) Text("★", color = Palette.Accent, fontFamily = Mono, fontWeight = FontWeight.Black, fontSize = 13.sp, modifier = Modifier.padding(end = 4.dp))
 }
 
 /** Compact tappable genre tag; tapping filters the list to that genre. */
@@ -56,10 +53,10 @@ internal fun FavStar(isFavorite: Boolean) {
 internal fun GenrePill(genre: String, onClick: () -> Unit) {
     val none = genre == MusicDao.GENRE_NONE
     if (none) {
-        Text("[ ? ]", color = Waaagh.Dim, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1, modifier = Modifier.clickable(onClick = onClick).padding(horizontal = 2.dp))
+        Text("?", color = Palette.Dim, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1, modifier = Modifier.clickable(onClick = onClick).padding(horizontal = 2.dp))
         return
     }
-    val c = if (none) Waaagh.Dim else CogBrass
+    val c = if (none) Palette.Dim else Palette.Amber
     Text(
         genre, color = c, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 8.sp, maxLines = 1,
         modifier = Modifier.border(1.dp, c).clickable(onClick = onClick).padding(horizontal = 3.dp)
@@ -77,23 +74,13 @@ internal fun Modifier.equalizerUnderlay(): Modifier {
         val b = bands
         for (i in 0 until n) {
             val h = (b.getOrElse(i) { 0f }.coerceIn(0f, 1f) * size.height)
-            if (h > 0f) drawRect(CogPhosphor, Offset(i * (barW + gap), size.height - h), Size(barW, h), alpha = 0.14f)
+            if (h > 0f) drawRect(Palette.Accent, Offset(i * (barW + gap), size.height - h), Size(barW, h), alpha = 0.14f)
         }
     }
 }
 private enum class Stage { MENU, MOVE, COPY, GENRE, PURGE }
 
-@Composable
-private fun CogDialog(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            Modifier.fillMaxWidth().background(CogSlate).border(1.dp, CogBrass).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp), content = content
-        )
-    }
-}
-
-/** Long-press menu for one track row. All status feedback goes through [CogitatorBanner]. */
+/** Long-press menu for one track row. All status feedback goes through [StatusBanner]. */
 @Composable
 internal fun TrackActionMenu(
     track: MusicTrackEntity, playlists: List<MusicPlaylistEntity>, counts: Map<Long, Int>,
@@ -101,67 +88,67 @@ internal fun TrackActionMenu(
 ) {
     val ctx = LocalContext.current
     var stage by remember { mutableStateOf(Stage.MENU) }
-    val plName = playlists.firstOrNull { it.id == track.playlistId }?.name ?: "PLAYLIST"
+    val plName = playlists.firstOrNull { it.id == track.playlistId }?.name ?: "Playlist"
 
-    fun done(msg: String) { CogitatorBanner.show(msg); onDismiss() }
+    fun done(msg: String) { StatusBanner.show(msg); onDismiss() }
 
-    CogDialog(onDismiss) {
-        Text(track.title, color = CogPhosphor, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    AppDialog(onDismiss) {
+        Text(track.title, color = Palette.Accent, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         when (stage) {
             Stage.MENU -> {
-                IronButton(if (track.isFavorite) "[ ★ UNFAVOURITE ]" else "[ ★ FAVOURITE ]", {
+                ActionButton(if (track.isFavorite) "★ Unfavourite" else "★ Favourite", {
                     scope.launch {
                         dao.setFavoriteBySource(track.sourceUrl, !track.isFavorite)
-                        done(if (track.isFavorite) "REMOVED FROM FAVOURITES" else "★ ADDED TO FAVOURITES")
+                        done(if (track.isFavorite) "Removed from favourites" else "★ Added to favourites")
                     }
                 }, Modifier.fillMaxWidth(), accent = true)
-                IronButton("[ ASSIGN GENRE ]", { stage = Stage.GENRE }, Modifier.fillMaxWidth())
-                IronButton("[ MOVE TO ARCHIVE... ]", { stage = Stage.MOVE }, Modifier.fillMaxWidth())
-                IronButton("[ COPY TO ARCHIVE... ]", { stage = Stage.COPY }, Modifier.fillMaxWidth())
-                IronButton("[ REMOVE FROM THIS PLAYLIST ]", {
-                    scope.launch { dao.deleteTrack(track.id); done("REMOVED FROM ${plName.uppercase()}") }
+                ActionButton("Assign Genre", { stage = Stage.GENRE }, Modifier.fillMaxWidth())
+                ActionButton("Move To Playlist...", { stage = Stage.MOVE }, Modifier.fillMaxWidth())
+                ActionButton("Copy To Playlist...", { stage = Stage.COPY }, Modifier.fillMaxWidth())
+                ActionButton("Remove From This Playlist", {
+                    scope.launch { dao.deleteTrack(track.id); done("Removed from ${plName}") }
                 }, Modifier.fillMaxWidth())
-                IronButton("[ PURGE PERMANENTLY ]", { stage = Stage.PURGE }, Modifier.fillMaxWidth())
-                IronButton("[ CLOSE ]", onDismiss, Modifier.fillMaxWidth())
+                ActionButton("Delete Permanently", { stage = Stage.PURGE }, Modifier.fillMaxWidth())
+                ActionButton("Close", onDismiss, Modifier.fillMaxWidth())
             }
             Stage.MOVE, Stage.COPY -> {
                 val move = stage == Stage.MOVE
                 val targets = playlists.filter { it.id != track.playlistId }
-                Text("TARGET ARCHIVE (${if (move) "MOVE" else "COPY"}):", color = Waaagh.Dim, fontFamily = Mono, fontSize = 10.sp)
-                if (targets.isEmpty()) Text("NO OTHER PLAYLISTS - CREATE ONE FIRST", color = Waaagh.Alert, fontFamily = Mono, fontSize = 11.sp)
+                Text("Target playlist (${if (move) "move" else "copy"}):", color = Palette.Dim, fontFamily = Mono, fontSize = 10.sp)
+                if (targets.isEmpty()) Text("No other playlists. Create one first.", color = Palette.Alert, fontFamily = Mono, fontSize = 11.sp)
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     items(targets, key = { it.id }) { p ->
                         Row(
-                            Modifier.fillMaxWidth().border(1.dp, Waaagh.Dim).clickable {
+                            Modifier.fillMaxWidth().border(1.dp, Palette.Dim).clickable {
                                 scope.launch {
                                     val added = dao.copyTrackTo(track.id, p.id, move)
-                                    done((if (move) "MOVED" else "COPIED") + " TO ${p.name.uppercase()}" + if (!added) " (ALREADY THERE)" else "")
+                                    done((if (move) "Moved" else "Copied") + " to ${p.name}" + if (!added) " (already there)" else "")
                                 }
                             }.padding(horizontal = 10.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(p.name.uppercase(), Modifier.weight(1f), color = Color.White, fontFamily = Heavy, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("(${counts[p.id] ?: 0})", color = Waaagh.Hazard, fontFamily = Mono, fontSize = 12.sp)
+                            Text(p.name, Modifier.weight(1f), color = Color.White, fontFamily = Heavy, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("(${counts[p.id] ?: 0})", color = Palette.Amber, fontFamily = Mono, fontSize = 12.sp)
                         }
                     }
                 }
-                IronButton("[ BACK ]", { stage = Stage.MENU }, Modifier.fillMaxWidth())
+                ActionButton("Back", { stage = Stage.MENU }, Modifier.fillMaxWidth())
             }
             Stage.GENRE -> {
                 var custom by remember { mutableStateOf("") }
                 fun apply(g: String) {
                     val v = g.trim().uppercase().ifBlank { MusicDao.GENRE_NONE }.take(16)
-                    scope.launch { dao.setGenreBySource(track.sourceUrl, v); done("GENRE: $v") }
+                    scope.launch { dao.setGenreBySource(track.sourceUrl, v); done("Genre: $v") }
                 }
-                Text("ASSIGN GENRE:", color = Waaagh.Dim, fontFamily = Mono, fontSize = 10.sp)
+                Text("Assign Genre:", color = Palette.Dim, fontFamily = Mono, fontSize = 10.sp)
                 (GENRE_PRESETS + MusicDao.GENRE_NONE).chunked(3).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         row.forEach { g -> Chip(g, track.genre == g) { apply(g) } }
                     }
                 }
-                NameField(custom, { custom = it }, "CUSTOM GENRE")
-                IronButton("[ APPLY CUSTOM ]", { apply(custom) }, Modifier.fillMaxWidth(), enabled = custom.isNotBlank(), accent = true)
-                IronButton("[ BACK ]", { stage = Stage.MENU }, Modifier.fillMaxWidth())
+                NameField(custom, { custom = it }, "Custom Genre")
+                ActionButton("Apply Custom", { apply(custom) }, Modifier.fillMaxWidth(), enabled = custom.isNotBlank(), accent = true)
+                ActionButton("Back", { stage = Stage.MENU }, Modifier.fillMaxWidth())
             }
             Stage.PURGE -> {
                 Text(
@@ -169,14 +156,14 @@ internal fun TrackActionMenu(
                     else "Remove this track from ALL playlists?",
                     color = Color.White, fontFamily = Mono, fontSize = 12.sp
                 )
-                IronButton("[ CONFIRM PURGE ]", {
+                ActionButton("Confirm Delete", {
                     scope.launch {
                         val ok = withContext(Dispatchers.IO) { track.localUri?.let { deleteLocalFile(ctx, it) } ?: true }
                         dao.deleteEverywhere(track.sourceUrl, track.localUri.orEmpty())
-                        done(if (ok) "TRACK PURGED PERMANENTLY" else "FILE FAULT: COULD NOT DELETE FILE (TRACK REMOVED)")
+                        done(if (ok) "Track deleted" else "File error: could not delete file (track removed)")
                     }
                 }, Modifier.fillMaxWidth(), accent = true)
-                IronButton("[ CANCEL ]", { stage = Stage.MENU }, Modifier.fillMaxWidth())
+                ActionButton("Cancel", { stage = Stage.MENU }, Modifier.fillMaxWidth())
             }
         }
     }

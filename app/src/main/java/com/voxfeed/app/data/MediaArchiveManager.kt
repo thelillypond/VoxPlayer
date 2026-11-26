@@ -21,7 +21,7 @@ import java.io.File
 import java.io.IOException
 
 /**
- * Stage 4B: offline archive via direct OkHttp streaming (no DownloadManager).
+ * Offline download via direct OkHttp streaming (no DownloadManager).
  * Each video gets `<movies>/VoxFeed/<videoId>/` holding `muxed.mp4`, or split `video.mp4` + `audio.m4a`.
  * Downloads run in an application-scoped coroutine so they survive leaving the player screen.
  * Room's `localVideoPath` stores the folder path; `isArchived` flips only after every file is renamed
@@ -38,7 +38,7 @@ class MediaArchiveManager private constructor(context: Context) {
     val progress: StateFlow<Map<String, Int>> = _progress
 
     private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 8)
-    /** Human-readable archive failures, for the UI to surface. */
+    /** Human-readable download failures, for the UI to surface. */
     val errors: SharedFlow<String> = _errors
 
     private fun setProgress(videoId: String, pct: Int) = _progress.update { it + (videoId to pct.coerceIn(0, 100)) }
@@ -63,7 +63,7 @@ class MediaArchiveManager private constructor(context: Context) {
             // Fresh resolve right now so the googlevideo URLs are unexpired.
             val streams = YouTubeStreamExtractor.resolveStreams(videoId, maxHeight = 1080)
             dir.deleteRecursively()
-            if (!dir.mkdirs() && !dir.isDirectory) throw IOException("Cannot create archive folder")
+            if (!dir.mkdirs() && !dir.isDirectory) throw IOException("Cannot create download folder")
 
             if (streams.audioUrl == null) {
                 download(streams.videoUrl, File(dir, "muxed.mp4"), 0, 100, videoId)
@@ -81,7 +81,7 @@ class MediaArchiveManager private constructor(context: Context) {
         } catch (e: Exception) {
             dir?.deleteRecursively()
             clearProgress(videoId)
-            _errors.tryEmit("ARCHIVE FAILED: ${e.message ?: e.javaClass.simpleName}")
+            _errors.tryEmit("Download failed: ${e.message ?: e.javaClass.simpleName}")
         } finally {
             synchronized(jobs) { jobs.remove(videoId) }
         }
@@ -156,7 +156,7 @@ class MediaArchiveManager private constructor(context: Context) {
             if (start != total) throw IOException("Incomplete download ($start/$total bytes)")
             if (target.exists()) target.delete()
             if (!part.renameTo(target)) throw IOException("Could not finalise ${target.name}")
-            // Cap at 99% until Room is updated (the button flips to ARCHIVED then).
+            // Cap at 99% until Room is updated (the button flips to Downloaded then).
             setProgress(videoId, minOf(to, 99))
         }
 
@@ -170,7 +170,7 @@ class MediaArchiveManager private constructor(context: Context) {
         root()?.let { runCatching { File(it, "$videoId.mp4").delete() } } // Stage 4B v1 layout
         dao.clearArchive(videoId)
         android.os.Handler(android.os.Looper.getMainLooper()).post {
-            com.voxfeed.app.ui.CogitatorBanner.show("DATA-SLATE PURGED // ARCHIVE EXPUNGED")
+            com.voxfeed.app.ui.StatusBanner.show("Download deleted")
         }
     }
 

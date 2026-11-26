@@ -23,7 +23,7 @@ enum class SummaryDepth(val label: String, val maxTranscriptChars: Int) {
     }
 }
 
-/** Outcome of a Silica Animus (Gemini) communion. */
+/** Outcome of a Gemini summary request. */
 sealed interface DigestResult {
     data class Success(val digest: String) : DigestResult
     data class QuotaExceeded(val googleMessage: String = "") : DigestResult
@@ -32,20 +32,20 @@ sealed interface DigestResult {
     data class NetworkOrApiError(val detail: String) : DigestResult
 }
 
-/** Operator-facing text for a failed [DigestResult]. */
+/** User-facing text for a failed [DigestResult]. */
 fun DigestResult.failureMessage(): String = when (this) {
     is DigestResult.QuotaExceeded ->
-        if (googleMessage.isNotBlank()) "// COGITATOR QUOTA EXHAUSTED (ERR 429) // $googleMessage"
-        else "// COGITATOR QUOTA EXHAUSTED (ERR 429) // NOOSPHERE TOKEN RESERVES DEPLETED. AWAIT CYCLE RESET OR SUPPLY NEW KEY IN RITES."
+        if (googleMessage.isNotBlank()) "Quota exceeded (error 429): $googleMessage"
+        else "Quota exceeded (error 429). Wait for your quota to reset or add a different API key in Settings."
     is DigestResult.InvalidKey ->
-        "// AUTHENTICATION RITE REJECTED // INVALID OR UNSANCTIONED COGITATOR KEY."
+        "Invalid API key. Check your Gemini API key in Settings."
     is DigestResult.ServiceCongested ->
-        "// NOOSPHERE CONGESTION (ERR 503) // EXTERNAL COGITATORS EXPERIENCING HIGH DEMAND. TRY AGAIN SHORTLY.$trace"
-    is DigestResult.NetworkOrApiError -> "// VOX-LINK SEVERED // COMMUNION FAILED: $detail"
+        "The Gemini service is busy (error 503). Try again shortly.$trace"
+    is DigestResult.NetworkOrApiError -> "Request failed: $detail"
     is DigestResult.Success -> ""
 }
 
-object CogitatorSummaryManager {
+object AiSummaryManager {
     /** Tight, highest-availability-first candidate list. No dynamic discovery, so failures resolve quickly. */
     private val CANDIDATES = listOf("gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash")
     private const val API_BASE = "https://generativelanguage.googleapis.com/v1beta"
@@ -72,20 +72,20 @@ object CogitatorSummaryManager {
     private const val STANDARD_PROMPT =
         "You are a sharp analyst. Given a YouTube video transcript (or just its title and description " +
             "when no captions exist), reply in plain text with EXACTLY these two sections and nothing else:\n" +
-            "// CORE THESIS\n(the central claim or purpose, 1-3 sentences)\n\n" +
-            "// KEY TAKEAWAYS\n(5 to 7 bullets, each starting with \"- \"; include a timestamp on each bullet when available)\n" +
+            "CORE THESIS\n(the central claim or purpose, 1-3 sentences)\n\n" +
+            "KEY TAKEAWAYS\n(5 to 7 bullets, each starting with \"- \"; include a timestamp on each bullet when available)\n" +
             STAMP_RULES +
             "Do not use markdown formatting such as ** or #. Be factual; do not invent details."
     private const val DEEP_PROMPT =
         "You are a meticulous research analyst. Given a YouTube video transcript (or just its title and " +
             "description when no captions exist), reply in plain text with a comprehensive structured breakdown " +
             "using EXACTLY these sections:\n" +
-            "// CORE THESIS\n(the central claim or purpose, 2-4 sentences)\n\n" +
-            "// STRUCTURE & ARGUMENTS\n(the main arguments in the order presented, as bullets starting with \"- \")\n\n" +
-            "// TECHNICAL DETAILS\n(specific numbers, names, dates, methods, examples; bullets starting with \"- \")\n\n" +
-            "// KEY QUOTES\n(notable verbatim quotes from the transcript, each with its timestamp when available)\n\n" +
-            "// COUNTERPOINTS & CAVEATS\n(weaknesses, disputed claims, missing context; bullets starting with \"- \")\n\n" +
-            "// FINAL VERDICT\n(whether to watch in full, skim, or skip, and why)\n" +
+            "CORE THESIS\n(the central claim or purpose, 2-4 sentences)\n\n" +
+            "STRUCTURE & ARGUMENTS\n(the main arguments in the order presented, as bullets starting with \"- \")\n\n" +
+            "TECHNICAL DETAILS\n(specific numbers, names, dates, methods, examples; bullets starting with \"- \")\n\n" +
+            "KEY QUOTES\n(notable verbatim quotes from the transcript, each with its timestamp when available)\n\n" +
+            "COUNTERPOINTS & CAVEATS\n(weaknesses, disputed claims, missing context; bullets starting with \"- \")\n\n" +
+            "FINAL VERDICT\n(whether to watch in full, skim, or skip, and why)\n" +
             STAMP_RULES +
             "Do not use markdown formatting such as ** or #. Be factual; do not invent details."
     /** Fetches the transcript, queries Gemini, and on success caches the digest for this depth only. */
@@ -209,7 +209,7 @@ object CogitatorSummaryManager {
             val detail = message.ifBlank { "HTTP $code" }
             return DigestResult.NetworkOrApiError(detail)
         }
-        if (json == null) return DigestResult.NetworkOrApiError("MALFORMED RESPONSE")
+        if (json == null) return DigestResult.NetworkOrApiError("Malformed response")
         val text = runCatching {
             val parts = json.getJSONArray("candidates").getJSONObject(0)
                 .getJSONObject("content").getJSONArray("parts")
@@ -217,7 +217,7 @@ object CogitatorSummaryManager {
         }.getOrDefault("").trim()
         if (text.isEmpty()) {
             val block = json.optJSONObject("promptFeedback")?.optString("blockReason").orEmpty()
-            return DigestResult.NetworkOrApiError(if (block.isNotEmpty()) "CONTENT BLOCKED ($block)" else "EMPTY RESPONSE")
+            return DigestResult.NetworkOrApiError(if (block.isNotEmpty()) "Content blocked ($block)" else "Empty response")
         }
         return DigestResult.Success(text)
     }

@@ -23,7 +23,7 @@ data class ChannelEntity(
     val title: String,
     val excludeShorts: Boolean = true,
     val lastCheckedAt: Long = 0,
-    /** Vox Alerts opt-in; false = muted. */
+    /** New-video notifications opt-in; false = muted. */
     @ColumnInfo(defaultValue = "1") val alertsEnabled: Boolean = true
 )
 
@@ -48,12 +48,12 @@ data class VideoEntity(
     @ColumnInfo(defaultValue = "''") val description: String = "",
     val localVideoPath: String? = null,
     @ColumnInfo(defaultValue = "0") val isArchived: Boolean = false,
-    /** Cached Silica Animus (Gemini) digest; never touched by RSS refreshes. */
+    /** Cached AI summary (legacy column); never touched by RSS refreshes. */
     val voxDigest: String? = null
 )
 
 
-/** Cached Silica Animus summary, one row per video and depth mode (BRIEF / DEEP_DOSSIER). */
+/** Cached AI summary, one row per video and depth mode (BRIEF / STANDARD / DEEP). */
 @Entity(
     tableName = "vox_digests",
     primaryKeys = ["videoId", "depthMode"],
@@ -68,4 +68,35 @@ data class DigestEntity(
     val depthMode: String,
     val digest: String,
     val createdAt: Long
+)
+
+
+/** User-created video playlist (mirrors the audio playlist model). */
+@Entity(tableName = "video_playlists")
+data class VideoPlaylistEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val createdAt: Long
+)
+
+/** Membership of one video in one playlist. Removed automatically when either side is deleted. */
+@Entity(
+    tableName = "video_playlist_items",
+    primaryKeys = ["playlistId", "videoId"],
+    foreignKeys = [
+        ForeignKey(
+            entity = VideoPlaylistEntity::class, parentColumns = ["id"],
+            childColumns = ["playlistId"], onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = VideoEntity::class, parentColumns = ["videoId"],
+            childColumns = ["videoId"], onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("playlistId"), Index("videoId")]
+)
+data class VideoPlaylistItemEntity(
+    val playlistId: Long,
+    val videoId: String,
+    val addedAt: Long
 )

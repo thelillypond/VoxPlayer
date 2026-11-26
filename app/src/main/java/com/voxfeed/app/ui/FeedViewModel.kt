@@ -9,11 +9,19 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
-sealed interface FeedFilter {
-    data object All : FeedFilter
-    data object Favorites : FeedFilter
-    data object Archived : FeedFilter
-    data class Sub(val id: Long) : FeedFilter
+/** Which channel(s) the video list is restricted to. */
+sealed interface ChannelFilter {
+    data object All : ChannelFilter
+    data class Group(val id: Long) : ChannelFilter
+    data class Channel(val id: String) : ChannelFilter
+}
+
+/** Which collection the video list shows. */
+sealed interface ListFilter {
+    data object Feed : ListFilter
+    data object Favorites : ListFilter
+    data object Downloads : ListFilter
+    data class Playlist(val id: Long) : ListFilter
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -26,16 +34,16 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
 
     private val prefs = app.getSharedPreferences("vox_prefs", android.content.Context.MODE_PRIVATE)
 
-    /** All subscribed channels, for the FEEDS management list. */
+    /** All subscribed channels. */
     val channels: StateFlow<List<ChannelEntity>> = db.channelDao().observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** Channel ids hidden from the ALL feed (SharedPreferences; no Room migration). */
     /** channelId -> channelTitle from stored videos; fallback label for channels named "Videos". */
     val videoChannelTitles: StateFlow<Map<String, String>> = db.videoDao().observeChannelTitles()
         .map { rows -> rows.associate { it.channelId to it.channelTitle } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
+    /** Channel ids hidden from the main feed (SharedPreferences; no Room migration). */
     val hiddenChannels = MutableStateFlow((prefs.getStringSet(HIDDEN_KEY, null) ?: prefs.getStringSet("hidden_channel_ids", null))?.toSet() ?: emptySet())
 
     private fun setHidden(ids: Set<String>) {
@@ -52,7 +60,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         setHidden(if (channelId in cur) cur - channelId else cur + channelId)
     }
 
-    /** Deletes the channel and its non-archived videos. Archived slates are kept (FK cascade would remove them). */
+    /** Deletes the channel and its non-downloaded videos. Downloaded videos are kept (FK cascade would remove them). */
     fun deleteChannel(channelId: String) = viewModelScope.launch {
         val videoDao = db.videoDao()
         val archived = videoDao.countArchivedByChannel(channelId)
@@ -60,53 +68,74 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         if (archived == 0) {
             db.channelDao().delete(channelId)
             setHidden(hiddenChannels.value - channelId)
-            message.value = "CHANNEL EXPUNGED"
+            if ((channelFilter.value as? ChannelFilter.Channel)?.id == channelId) channelFilter.value = ChannelFilter.All
+            message.value = "Channel removed"
         } else {
             setHidden(hiddenChannels.value + channelId)
-            message.value = "UNARCHIVED ENTRIES PURGED // $archived ARCHIVED SLATE(S) RETAINED, CHANNEL HIDDEN - PURGE THEM TO FULLY REMOVE"
+            message.value = "Videos removed. $archived downloaded video(s) kept and the channel is hidden. Delete the downloads to fully remove it."
         }
     }
 
-    val filter = MutableStateFlow<FeedFilter>(FeedFilter.All)
-    /** Non-null label while scraping / resolving; drives the diagnostic overlay. */
+    val channelFilter = MutableStateFlow<ChannelFilter>(ChannelFilter.All)
+    val listFilter = MutableStateFlow<ListFilter>(ListFilter.Feed)
+    /** Non-null label while refreshing / resolving; drives the loading overlay. */
     val busy = MutableStateFlow<String?>(null)
-    val favCategory = MutableStateFlow<Long?>(null)
     val message = MutableStateFlow<String?>(null)
-    /** videoId -> live archive download percent (0..100). */
+    /** videoId -> live download percent (0..100). */
     val archiveProgress: StateFlow<Map<String, Int>> = MediaArchiveManager.get(app).progress
 
-    /** Active Scrape Window (hours; 0 = ALL). Changing it re-queries the displayed feed immediately. */
+    /** Active scrape window (hours; 0 = all). Changing it re-queries the displayed feed immediately. */
     val lookbackHours = MutableStateFlow(PollPrefs.lookbackWindowHours(app))
     fun setLookbackHours(h: Int) {
         PollPrefs.setLookbackWindowHours(getApplication(), h)
         lookbackHours.value = h
     }
 
-    private data class Query(val f: FeedFilter, val c: Long?, val hidden: Set<String>, val hours: Int)
+    // ── Video playlists ──
+    private val playlistDao = db.videoPlaylistDao()
+    val videoPlaylists: StateFlow<List<VideoPlaylistEntity>> = playlistDao.observePlaylists()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val playlistCounts: StateFlow<Map<Long, Int>> = playlistDao.observeItems()
+        .map { items -> items.groupingBy { it.playlistId }.eachCount() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+    /** videoId -> ids of the playlists containing it. */
+    val playlistMembership: StateFlow<Map<String, Set<Long>>> = playlistDao.observeItems()
+        .map { items -> items.groupBy({ it.videoId }, { it.playlistId }).mapValues { it.value.toSet() } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
-    val videos: StateFlow<List<VideoEntity>> = combine(filter, favCategory, hiddenChannels, lookbackHours) { f, c, h, l -> Query(f, c, h, l) }
-        .flatMapLatest { (f, c, hidden, hours) ->
-            // Display-time window (feed views only; favorites/archive are user-saved and never hidden by it).
-            fun List<VideoEntity>.windowed(): List<VideoEntity> {
-                val now = System.currentTimeMillis()
-                return filter { LookbackFilter.passes(it.publishedAt, hours, now) && it.channelId !in hidden }
-            }
-            val dao = db.videoDao()
-            when (f) {
-                FeedFilter.All -> dao.observeAll().map { it.windowed() }
-                FeedFilter.Archived -> dao.observeArchived()
-                FeedFilter.Favorites -> if (c == null) dao.observeFavorites() else dao.observeFavoritesBySubFeed(c)
-                is FeedFilter.Sub -> dao.observeBySubFeed(f.id).map { it.windowed() }
-            }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    fun select(f: FeedFilter) { filter.value = f }
-    fun selectFavCategory(id: Long?) { favCategory.value = id }
+    private data class Query(val ch: ChannelFilter, val list: ListFilter, val hidden: Set<String>, val hours: Int)
+
+    val videos: StateFlow<List<VideoEntity>> =
+        combine(channelFilter, listFilter, hiddenChannels, lookbackHours) { c, l, h, hours -> Query(c, l, h, hours) }
+            .flatMapLatest { (ch, list, hidden, hours) ->
+                val dao = db.videoDao()
+                val source: Flow<List<VideoEntity>> = when (list) {
+                    ListFilter.Feed -> dao.observeAll().map { all ->
+                        // Display-time window applies to the feed only; saved lists are never hidden by it.
+                        val now = System.currentTimeMillis()
+                        all.filter { LookbackFilter.passes(it.publishedAt, hours, now) && it.channelId !in hidden }
+                    }
+                    ListFilter.Favorites -> dao.observeFavorites()
+                    ListFilter.Downloads -> dao.observeArchived()
+                    is ListFilter.Playlist -> playlistDao.observeVideos(list.id)
+                }
+                source.map { vids ->
+                    when (ch) {
+                        ChannelFilter.All -> vids
+                        is ChannelFilter.Group -> vids.filter { it.subFeedId == ch.id }
+                        is ChannelFilter.Channel -> vids.filter { it.channelId == ch.id }
+                    }
+                }
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun selectChannel(f: ChannelFilter) { channelFilter.value = f }
+    fun selectList(f: ListFilter) { listFilter.value = f }
 
     fun refresh() = viewModelScope.launch {
-        busy.value = "COMMUNING WITH THE MACHINE SPIRITS..."
+        busy.value = "Refreshing feeds..."
         val failed = runCatching {
-            when (val f = filter.value) {
-                is FeedFilter.Sub -> repo.refreshSubFeed(f.id)
+            when (val f = channelFilter.value) {
+                is ChannelFilter.Group -> repo.refreshSubFeed(f.id)
                 else -> repo.refreshAll()
             }
         }.getOrElse { message.value = "Refresh failed: ${it.message}"; 0 }
@@ -115,14 +144,14 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refreshAll() = viewModelScope.launch {
-        busy.value = "COMMUNING WITH THE MACHINE SPIRITS..."
+        busy.value = "Refreshing feeds..."
         val failed = runCatching { repo.refreshAll() }.getOrElse { message.value = "Refresh failed: ${it.message}"; 0 }
         if (failed > 0) message.value = "$failed channel(s) failed to refresh"
         busy.value = null
     }
 
     fun addChannel(input: String, subFeedId: Long, excludeShorts: Boolean) = viewModelScope.launch {
-        busy.value = "POLLING TRANS-VOX..."
+        busy.value = "Adding channel..."
         runCatching { repo.addChannel(input, subFeedId, excludeShorts) }
             .onSuccess { message.value = "Channel added" }
             .onFailure { message.value = "Add failed: ${it.message}" }
@@ -135,8 +164,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun deleteSubFeed(id: Long) = viewModelScope.launch {
-        if ((filter.value as? FeedFilter.Sub)?.id == id) filter.value = FeedFilter.All
-        if (favCategory.value == id) favCategory.value = null
+        if ((channelFilter.value as? ChannelFilter.Group)?.id == id) channelFilter.value = ChannelFilter.All
         db.subFeedDao().delete(id)
     }
 
@@ -144,11 +172,36 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun setFavorite(id: String, fav: Boolean) = viewModelScope.launch { db.videoDao().setFavorite(id, fav) }
     fun purgeArchive(id: String) = viewModelScope.launch {
         runCatching { MediaArchiveManager.get(getApplication()).deleteArchive(id) }
-            .onFailure { message.value = "Purge failed: ${it.message}" }
+            .onFailure { message.value = "Delete failed: ${it.message}" }
     }
-        fun clearMessage() { message.value = null }
+    fun clearMessage() { message.value = null }
+
+    // ── Playlist actions ──
+    /** Creates a playlist, optionally adding [videoId] to it, and returns nothing (observers refresh the UI). */
+    fun createPlaylist(name: String, videoId: String? = null, select: Boolean = false) = viewModelScope.launch {
+        val id = playlistDao.insertPlaylist(VideoPlaylistEntity(name = name.trim(), createdAt = System.currentTimeMillis()))
+        if (videoId != null) playlistDao.addItem(VideoPlaylistItemEntity(id, videoId, System.currentTimeMillis()))
+        if (select) listFilter.value = ListFilter.Playlist(id)
+        message.value = if (videoId != null) "Added to ${name.trim()}" else "Playlist created"
+    }
+
+    fun addToPlaylist(playlistId: Long, name: String, videoId: String) = viewModelScope.launch {
+        val added = playlistDao.addItem(VideoPlaylistItemEntity(playlistId, videoId, System.currentTimeMillis())) != -1L
+        message.value = if (added) "Added to $name" else "Already in $name"
+    }
+
+    fun removeFromPlaylist(playlistId: Long, name: String, videoId: String) = viewModelScope.launch {
+        playlistDao.removeItem(playlistId, videoId)
+        message.value = "Removed from $name"
+    }
+
+    fun renamePlaylist(id: Long, name: String) = viewModelScope.launch { playlistDao.rename(id, name.trim()) }
+
+    fun deletePlaylist(id: Long) = viewModelScope.launch {
+        if ((listFilter.value as? ListFilter.Playlist)?.id == id) listFilter.value = ListFilter.Feed
+        playlistDao.deletePlaylist(id)
+        message.value = "Playlist deleted"
+    }
 
     private companion object { const val HIDDEN_KEY = "hidden_channels" }
 }
-
-

@@ -37,11 +37,11 @@ object PollPrefs {
     fun voxAlertsEnabled(c: Context) = sp(c).getBoolean("vox_alerts", false)
     fun setVoxAlertsEnabled(c: Context, v: Boolean) = sp(c).edit().putBoolean("vox_alerts", v).apply()
 
-    /** Google AI Studio (Gemini) API key for the Abominable Intelligence digest. */
+    /** Google AI Studio (Gemini) API key for AI video summaries. */
     fun geminiKey(c: Context): String = sp(c).getString("gemini_key", "").orEmpty()
     fun setGeminiKey(c: Context, v: String) = sp(c).edit().putString("gemini_key", v.trim()).apply()
 
-    /** Silica Animus depth: "BRIEF" or "DEEP_DOSSIER". */
+    /** Summary depth: "BRIEF" or "DEEP_DOSSIER". */
     fun summaryDepth(c: Context): String = sp(c).getString("summary_depth", "BRIEF") ?: "BRIEF"
     fun setSummaryDepth(c: Context, v: String) = sp(c).edit().putString("summary_depth", v).apply()
 

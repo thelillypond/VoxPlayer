@@ -1,39 +1,24 @@
 package com.voxfeed.app
 
-import android.graphics.Typeface
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.CutCornerShape
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
@@ -43,30 +28,24 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.zIndex
-import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
 import com.voxfeed.app.data.ChannelEntity
+import com.voxfeed.app.data.MusicPlaylistEntity
 import com.voxfeed.app.data.SubFeedEntity
 import com.voxfeed.app.data.VideoEntity
+import com.voxfeed.app.data.VideoPlaylistEntity
 import com.voxfeed.app.ui.*
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val vm: FeedViewModel by viewModels()
@@ -76,8 +55,13 @@ class MainActivity : ComponentActivity() {
         com.voxfeed.app.worker.PollPrefs.schedule(applicationContext)
         if (savedInstanceState == null) handleAlertIntent(intent)
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
-                Surface(Modifier.fillMaxSize(), color = Grim.Obsidian) { VoxApp(vm) }
+            MaterialTheme(
+                colorScheme = darkColorScheme(
+                    primary = Palette.Accent, background = Palette.Bg, surface = Palette.Surface,
+                    surfaceContainer = Palette.Surface, onSurface = Palette.Text, onBackground = Palette.Text
+                )
+            ) {
+                Surface(Modifier.fillMaxSize(), color = Palette.Bg) { VoxApp(vm) }
             }
         }
     }
@@ -88,19 +72,14 @@ class MainActivity : ComponentActivity() {
         handleAlertIntent(intent)
     }
 
-    /** Vox Alert tap: jump straight to that video's player and mark it read. */
+    /** New-video notification tap: jump straight to that video's player and mark it read. */
     private fun handleAlertIntent(intent: android.content.Intent?) {
         val id = intent?.getStringExtra(EXTRA_OPEN_VIDEO_ID) ?: return
         intent.removeExtra(EXTRA_OPEN_VIDEO_ID)
         lifecycleScope.launch {
             val v = com.voxfeed.app.data.VoxDatabase.get(applicationContext).videoDao().get(id) ?: return@launch
             vm.markRead(id)
-            startActivity(
-                android.content.Intent(this@MainActivity, PictFeedActivity::class.java)
-                    .putExtra(PictFeedActivity.VIDEO_ID, v.videoId)
-                    .putExtra(PictFeedActivity.VIDEO_TITLE, v.title)
-                    .putExtra(PictFeedActivity.VIDEO_DESCRIPTION, v.description)
-            )
+            startActivity(videoIntent(this@MainActivity, v, emptyList()))
         }
     }
 
@@ -109,244 +88,306 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val navLabels = listOf("FEEDS", "EXTRACT", "FAVORITES", "RITES")
-private val Condensed = FontFamily(Typeface.create("sans-serif-condensed", Typeface.BOLD))
-private val Mono = FontFamily.Monospace
+/** Intent that opens [v] in the player, optionally followed by [queue] (video ids played in order). */
+internal fun videoIntent(ctx: android.content.Context, v: VideoEntity, queue: List<String>): android.content.Intent =
+    android.content.Intent(ctx, VideoPlayerActivity::class.java)
+        .putExtra(VideoPlayerActivity.VIDEO_ID, v.videoId)
+        .putExtra(VideoPlayerActivity.VIDEO_TITLE, v.title)
+        .putExtra(VideoPlayerActivity.VIDEO_DESCRIPTION, v.description)
+        .putExtra(VideoPlayerActivity.QUEUE_IDS, queue.toTypedArray())
 
-@OptIn(ExperimentalFoundationApi::class)
+private fun channelName(ch: ChannelEntity, titles: Map<String, String>): String =
+    ch.title.takeIf { it.isNotBlank() && !it.equals("Videos", true) }
+        ?: titles[ch.channelId]?.takeIf { it.isNotBlank() && !it.equals("Videos", true) }
+        ?: ch.channelId
+
 @Composable
 fun VoxApp(vm: FeedViewModel) {
-    var showConsole by rememberSaveable { mutableStateOf(false) }
-    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-    if (showConsole) {
-        MusicConsoleScreen(onExit = { showConsole = false })
+    var showDeck by rememberSaveable { mutableStateOf(false) }
+    if (showDeck) {
+        MusicConsoleScreen(onExit = { showDeck = false })
         return
     }
     val ctx = LocalContext.current
-    val art by produceState<GrimArt?>(null) { value = ArtLoader.load(ctx) }
     val subFeeds by vm.subFeeds.collectAsStateWithLifecycle()
     val videos by vm.videos.collectAsStateWithLifecycle()
-    val filter by vm.filter.collectAsStateWithLifecycle()
-    val favCategory by vm.favCategory.collectAsStateWithLifecycle()
+    val channelFilter by vm.channelFilter.collectAsStateWithLifecycle()
+    val listFilter by vm.listFilter.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     val archiveProgress by vm.archiveProgress.collectAsStateWithLifecycle()
-
-    var showAddChannel by remember { mutableStateOf(false) }
-    var showConfig by remember { mutableStateOf(false) }
-    var deleteTarget by remember { mutableStateOf<SubFeedEntity?>(null) }
     val channels by vm.channels.collectAsStateWithLifecycle()
     val hiddenChannels by vm.hiddenChannels.collectAsStateWithLifecycle()
     val videoChannelTitles by vm.videoChannelTitles.collectAsStateWithLifecycle()
-    var purgeTarget by remember { mutableStateOf<VideoEntity?>(null) }
+    val playlists by vm.videoPlaylists.collectAsStateWithLifecycle()
+    val counts by vm.playlistCounts.collectAsStateWithLifecycle()
+    val membership by vm.playlistMembership.collectAsStateWithLifecycle()
+
+    var showAddChannel by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
+    var deleteGroupTarget by remember { mutableStateOf<SubFeedEntity?>(null) }
+    var deleteDownloadTarget by remember { mutableStateOf<VideoEntity?>(null) }
+    var playlistTarget by remember { mutableStateOf<VideoEntity?>(null) } // video being added to a playlist
+    var newPlaylistFor by remember { mutableStateOf<String?>(null) }       // "" = just create, else videoId to add
+    var renameTarget by remember { mutableStateOf<VideoPlaylistEntity?>(null) }
+    var deletePlaylistTarget by remember { mutableStateOf<VideoPlaylistEntity?>(null) }
     val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(message) {
         message?.let { snackbar.showSnackbar(it); vm.clearMessage() }
     }
 
-    val activeSwitch = when {
-        busy != null || showConfig -> 3
-        showAddChannel -> 1
-        filter == FeedFilter.Favorites -> 2
-        else -> 0
-    }
-
-    fun onSwitch(i: Int) {
-        when (i) {
-            0 -> vm.select(FeedFilter.All)
-            1 -> showAddChannel = true
-            2 -> vm.select(if (filter == FeedFilter.Favorites) FeedFilter.All else FeedFilter.Favorites)
-            3 -> showConfig = true
+    fun open(v: VideoEntity, queue: List<String>) {
+        try {
+            vm.markRead(v.videoId)
+            ctx.startActivity(videoIntent(ctx, v, queue))
+        } catch (e: Exception) {
+            android.util.Log.e("VoxFeedCrash", "Opening video failed", e)
+            android.widget.Toast.makeText(ctx, "Playback error: ${e.message ?: e.javaClass.simpleName}", android.widget.Toast.LENGTH_LONG).show()
         }
     }
-    BoxWithConstraints(Modifier.fillMaxSize().background(Grim.Obsidian)) {
-        val W = maxWidth
-        val H = maxHeight
-        val a = art
-        if (a == null) {
-            Text("INITIALISING COGITATOR...", Modifier.align(Alignment.Center), color = Grim.Phosphor, fontFamily = Mono, fontSize = 12.sp)
-            return@BoxWithConstraints
-        }
-        val vp = a.viewport
 
-        // ── Base + middle layer: CRT viewport ──────────────────────────────
-        Box(
-            Modifier.offset(W * vp.left, H * vp.top).size(W * vp.width, H * vp.height)
-                .clipToBounds().background(Grim.Obsidian)
-        ) {
-            Column(Modifier.fillMaxSize().padding(top = 4.dp)) {
-                val favMode = filter == FeedFilter.Favorites
-                val archivedMode = filter == FeedFilter.Archived
-                CategoryStrip(
-                    subFeeds = subFeeds,
-                    selectedId = if (favMode) favCategory else (filter as? FeedFilter.Sub)?.id,
-                    favMode = favMode,
-                    archivedMode = archivedMode,
-                    onArchived = { vm.select(FeedFilter.Archived) },
-                    onSelect = { id ->
-                        if (favMode) vm.selectFavCategory(id)
-                        else vm.select(if (id == null) FeedFilter.All else FeedFilter.Sub(id))
-                    },
-                    onLongPress = { deleteTarget = it }
+    val activePlaylist = (listFilter as? ListFilter.Playlist)?.let { f -> playlists.firstOrNull { it.id == f.id } }
+
+    Box(Modifier.fillMaxSize().background(Palette.Bg)) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            // ── Header ──
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Videos", Modifier.weight(1f).padding(horizontal = 6.dp), color = Palette.Text,
+                    fontFamily = Heavy, fontWeight = FontWeight.Black, fontSize = 20.sp, maxLines = 1
                 )
-                VideoList(
-                    videos, busy != null, vm::refresh,
-                    { id -> videos.firstOrNull { it.videoId == id }?.let {
-                        try {
-                            vm.markRead(id)
-                            ctx.startActivity(
-                                android.content.Intent(ctx, PictFeedActivity::class.java)
-                                    .putExtra(PictFeedActivity.VIDEO_ID, it.videoId)
-                                    .putExtra(PictFeedActivity.VIDEO_TITLE, it.title)
-                                    .putExtra(PictFeedActivity.VIDEO_DESCRIPTION, it.description)
-                            )
-                        } catch (e: Exception) {
-                            android.util.Log.e("VoxFeedCrash", "Opening video failed", e)
-                            android.widget.Toast.makeText(ctx, "SIGNAL FAULT: ${e.message ?: e.javaClass.simpleName}", android.widget.Toast.LENGTH_LONG).show()
+                IconButton({ showAddChannel = true }) { Icon(Icons.Filled.Add, "Add channel", tint = Palette.Text) }
+                IconButton({ showSettings = true }) { Icon(Icons.Filled.Settings, "Settings", tint = Palette.Text) }
+                Spacer(Modifier.width(4.dp))
+                ActionButton("Audio Deck", { showDeck = true }, accent = true, height = 36.dp, size = 12, hPad = 10.dp, vPad = 4.dp)
+            }
+            Spacer(Modifier.height(6.dp))
+
+            // ── Filters: channel + playlist dropdowns, then Play All ──
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                val channelLabel = when (val f = channelFilter) {
+                    ChannelFilter.All -> "All Channels"
+                    is ChannelFilter.Group -> subFeeds.firstOrNull { it.id == f.id }?.name ?: "Group"
+                    is ChannelFilter.Channel -> channels.firstOrNull { it.channelId == f.id }?.let { channelName(it, videoChannelTitles) } ?: "Channel"
+                }
+                DropdownSelector(channelLabel, Modifier.weight(1f)) { close ->
+                    MenuRow("All Channels", channelFilter == ChannelFilter.All) { vm.selectChannel(ChannelFilter.All); close() }
+                    if (subFeeds.isNotEmpty()) {
+                        MenuHeader("Groups")
+                        subFeeds.forEach { g ->
+                            MenuRow(
+                                g.name, (channelFilter as? ChannelFilter.Group)?.id == g.id,
+                                trailing = {
+                                    Icon(
+                                        Icons.Filled.Delete, "Delete group", tint = Palette.Dim,
+                                        modifier = Modifier.size(32.dp).clickable { close(); deleteGroupTarget = g }.padding(6.dp)
+                                    )
+                                }
+                            ) { vm.selectChannel(ChannelFilter.Group(g.id)); close() }
                         }
-                    } },
-                    vm::setFavorite, vm::markRead, { id -> purgeTarget = videos.firstOrNull { it.videoId == id } }, archiveProgress
-                )
-            }
-            CrtOverlay(Modifier.fillMaxSize())
-            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
-            busy?.let { DiagnosticOverlay(it, Modifier.fillMaxSize()) }
-        }
-
-        // ── Foreground overlays (no pointer handlers => touches fall through) ──
-        Image(a.bezel, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
-        Box(Modifier.fillMaxWidth().aspectRatio(a.header.width / a.header.height.toFloat()).align(Alignment.TopCenter)) {
-            Image(a.header, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
-            HeaderEffects(Modifier.fillMaxSize())
-            // Hidden entry: double-tap the Servo-Skull emblem (bionic eye) to open WAAAGH-BOX.
-            BoxWithConstraints(Modifier.fillMaxSize()) {
-                val hw = maxWidth; val hh = maxHeight
-                val sz = hw * 0.26f
-                Box(
-                    Modifier.offset(hw * 0.443f - sz / 2, hh * 0.368f - sz / 2).size(sz)
-                        .combinedClickable(
-                            interactionSource = remember { MutableInteractionSource() }, indication = null,
-                            onClick = {},
-                            onDoubleClick = {
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                showConsole = true
+                    }
+                    if (channels.isNotEmpty()) {
+                        MenuHeader("Channels")
+                        channels.sortedBy { channelName(it, videoChannelTitles).lowercase() }.forEach { ch ->
+                            MenuRow(channelName(ch, videoChannelTitles), (channelFilter as? ChannelFilter.Channel)?.id == ch.channelId) {
+                                vm.selectChannel(ChannelFilter.Channel(ch.channelId)); close()
                             }
-                        )
+                        }
+                    }
+                }
+                val listLabel = when (val f = listFilter) {
+                    ListFilter.Feed -> "All Videos"
+                    ListFilter.Favorites -> "Favorites"
+                    ListFilter.Downloads -> "Downloads"
+                    is ListFilter.Playlist -> activePlaylist?.let { "${it.name} (${counts[it.id] ?: 0})" } ?: "Playlist"
+                }
+                DropdownSelector(listLabel, Modifier.weight(1f)) { close ->
+                    MenuRow("All Videos", listFilter == ListFilter.Feed) { vm.selectList(ListFilter.Feed); close() }
+                    MenuRow("Favorites", listFilter == ListFilter.Favorites) { vm.selectList(ListFilter.Favorites); close() }
+                    MenuRow("Downloads", listFilter == ListFilter.Downloads) { vm.selectList(ListFilter.Downloads); close() }
+                    MenuHeader("Playlists")
+                    playlists.forEach { p ->
+                        MenuRow("${p.name} (${counts[p.id] ?: 0})", (listFilter as? ListFilter.Playlist)?.id == p.id) {
+                            vm.selectList(ListFilter.Playlist(p.id)); close()
+                        }
+                    }
+                    MenuRow("+ New Playlist", false, color = Palette.Accent) { close(); newPlaylistFor = "" }
+                    activePlaylist?.let { p ->
+                        HorizontalDivider(color = Palette.Border)
+                        MenuRow("Rename \"${p.name}\"", false) { close(); renameTarget = p }
+                        MenuRow("Delete \"${p.name}\"", false, color = Palette.Alert) { close(); deletePlaylistTarget = p }
+                    }
+                }
+                ActionButton(
+                    "▶ Play", { videos.firstOrNull()?.let { first -> open(first, videos.drop(1).map { it.videoId }) } },
+                    enabled = videos.isNotEmpty(), accent = true, height = 38.dp, size = 12, hPad = 10.dp, vPad = 4.dp
                 )
             }
-        }
-        Box(
-            Modifier.align(Alignment.BottomCenter).padding(bottom = H * 0.165f)
-                .fillMaxWidth().aspectRatio(a.footer.width / a.footer.height.toFloat())
-        ) {
-            Image(a.footer, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
-            AltarEffects(Modifier.fillMaxSize())
-        }
+            Spacer(Modifier.height(6.dp))
 
-        // ── Hardware switches ──────────────────────────────────────────────
-        SwitchGlow(activeSwitch, Modifier.fillMaxSize())
-        navLabels.indices.forEach { i ->
-            Box(
-                Modifier
-                    .offset(W * (switchCenters[i] - SWITCH_WIDTH / 2), H * SWITCH_TOP)
-                    .size(W * SWITCH_WIDTH, H * SWITCH_HEIGHT)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { onSwitch(i) }
+            VideoList(
+                videos = videos, refreshing = busy != null, onRefresh = vm::refresh,
+                emptyText = when (listFilter) {
+                    ListFilter.Feed -> "No videos yet. Pull down to refresh or add a channel."
+                    ListFilter.Favorites -> "No favorites yet."
+                    ListFilter.Downloads -> "No downloaded videos."
+                    is ListFilter.Playlist -> "This playlist is empty. Use the ⋮ menu on a video to add it."
+                },
+                progress = archiveProgress, membership = membership, activePlaylistId = activePlaylist?.id,
+                onOpen = { v ->
+                    val queue = if (listFilter is ListFilter.Playlist) {
+                        videos.dropWhile { it.videoId != v.videoId }.drop(1).map { it.videoId }
+                    } else emptyList()
+                    open(v, queue)
+                },
+                onFav = vm::setFavorite, onRead = vm::markRead,
+                onDeleteDownload = { deleteDownloadTarget = it },
+                onAddToPlaylist = { playlistTarget = it },
+                onRemoveFromPlaylist = { v -> activePlaylist?.let { vm.removeFromPlaylist(it.id, it.name, v.videoId) } }
             )
         }
+        busy?.let { LoadingOverlay(it, Modifier.fillMaxSize()) }
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
     }
 
+    // ── Dialogs ──
     if (showAddChannel) AddChannelSheet(
-        subFeeds, (filter as? FeedFilter.Sub)?.id,
+        subFeeds, (channelFilter as? ChannelFilter.Group)?.id,
         onDismiss = { showAddChannel = false },
         onSave = { input, sub, ex -> vm.addChannel(input, sub, ex); showAddChannel = false },
         onAddCategory = vm::addSubFeed
     )
-    if (showConfig) CogitatorConfigModal(
+    if (showSettings) SettingsDialog(
         syncing = busy != null,
         channels = channels, subFeeds = subFeeds, hiddenChannels = hiddenChannels, videoChannelTitles = videoChannelTitles,
         onToggleHidden = vm::toggleHidden,
         onToggleChannelAlerts = vm::setChannelAlerts,
         onLookbackChange = vm::setLookbackHours,
         onDeleteChannel = vm::deleteChannel,
-        onSync = { if (busy == null) vm.refreshAll(); showConfig = false },
-        onDismiss = { showConfig = false }
+        onSync = { if (busy == null) vm.refreshAll(); showSettings = false },
+        onDismiss = { showSettings = false }
     )
-    purgeTarget?.let { v ->
-        PurgeConfirmDialog(v.title, { purgeTarget = null }, { vm.purgeArchive(v.videoId); purgeTarget = null })
+    deleteDownloadTarget?.let { v ->
+        DeleteDownloadDialog(v.title, { deleteDownloadTarget = null }, { vm.purgeArchive(v.videoId); deleteDownloadTarget = null })
     }
-    deleteTarget?.let { t ->
-        GrimDialog(onDismiss = { deleteTarget = null }) {
-            GrimLabel("// PURGE CATEGORY?", Grim.Phosphor, 13.sp)
-            GrimLabel("\"${t.name.uppercase()}\"", Grim.Cream, 12.sp)
-            GrimLabel("ITS CHANNELS AND VIDEOS WILL BE EXPUNGED FROM THE DATA-VAULT.", Grim.Cream, 10.sp)
+    deleteGroupTarget?.let { t ->
+        AppDialog(onDismiss = { deleteGroupTarget = null }) {
+            AppLabel("Delete group?", Palette.Alert, 16.sp)
+            Text(
+                "\"${t.name}\" and its channels and videos will be removed.",
+                color = Palette.Text, fontSize = 13.sp
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GrimButton("[ ABORT ]", { deleteTarget = null }, Modifier.weight(1f))
-                GrimButton("[ PURGE ]", { vm.deleteSubFeed(t.id); deleteTarget = null }, Modifier.weight(1f))
+                ActionButton("Cancel", { deleteGroupTarget = null }, Modifier.weight(1f))
+                ActionButton("Delete", { vm.deleteSubFeed(t.id); deleteGroupTarget = null }, Modifier.weight(1f), accent = true)
+            }
+        }
+    }
+    // Add to playlist: same picker the Audio deck uses.
+    playlistTarget?.let { v ->
+        PlaylistPickerDialog(
+            title = "Add to Playlist",
+            playlists = playlists.map { MusicPlaylistEntity(it.id, it.name, it.createdAt) }, counts = counts, activeId = -1L,
+            onPick = { id ->
+                playlists.firstOrNull { it.id == id }?.let { vm.addToPlaylist(it.id, it.name, v.videoId) }
+                playlistTarget = null
+            },
+            onNew = { playlistTarget = null; newPlaylistFor = v.videoId },
+            onDismiss = { playlistTarget = null }
+        )
+    }
+    newPlaylistFor?.let { videoId ->
+        var name by remember { mutableStateOf("") }
+        AppDialog({ newPlaylistFor = null }) {
+            AppLabel("New Playlist", Palette.Amber, 16.sp)
+            NameField(name, { name = it }, "Playlist name")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionButton("Cancel", { newPlaylistFor = null }, Modifier.weight(1f))
+                ActionButton("Create", {
+                    vm.createPlaylist(name, videoId.ifEmpty { null }, select = videoId.isEmpty())
+                    newPlaylistFor = null
+                }, Modifier.weight(1f), enabled = name.isNotBlank(), accent = true)
+            }
+        }
+    }
+    renameTarget?.let { p ->
+        var name by remember { mutableStateOf(p.name) }
+        AppDialog({ renameTarget = null }) {
+            AppLabel("Rename Playlist", Palette.Amber, 16.sp)
+            NameField(name, { name = it }, "Playlist name")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionButton("Cancel", { renameTarget = null }, Modifier.weight(1f))
+                ActionButton("Rename", { vm.renamePlaylist(p.id, name); renameTarget = null }, Modifier.weight(1f), enabled = name.isNotBlank(), accent = true)
+            }
+        }
+    }
+    deletePlaylistTarget?.let { p ->
+        AppDialog({ deletePlaylistTarget = null }) {
+            AppLabel("Delete playlist?", Palette.Alert, 16.sp)
+            Text("Delete \"${p.name}\"? The videos themselves are kept.", color = Palette.Text, fontSize = 13.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionButton("Cancel", { deletePlaylistTarget = null }, Modifier.weight(1f))
+                ActionButton("Delete", { vm.deletePlaylist(p.id); deletePlaylistTarget = null }, Modifier.weight(1f), accent = true)
             }
         }
     }
 }
 
-// ── Compact CRT controls ────────────────────────────────────────────────────
+// ── Dropdown building blocks ────────────────────────────────────────────────
 
-@OptIn(ExperimentalFoundationApi::class)
+/** Compact top-bar dropdown: a button that opens a [DropdownMenu]. */
 @Composable
-private fun MonoButton(label: String, onClick: () -> Unit, selected: Boolean = false, onLongClick: (() -> Unit)? = null) {
-    Text(
-        label,
-        Modifier
-            .border(1.dp, if (selected) Grim.Phosphor else Grim.Brass, RoundedCornerShape(2.dp))
-            .background(if (selected) Grim.Phosphor.copy(alpha = 0.15f) else Color.Transparent)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 7.dp, vertical = 3.dp),
-        color = if (selected) Grim.Phosphor else Grim.Cream,
-        fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1
-    )
-}
-
-/**
- * The single slim category strip. In feed mode it picks the sub-feed; in favorites mode it filters
- * favorites by each video's subFeedId. Long-pressing a category chip asks to delete it.
- */
-@Composable
-private fun CategoryStrip(
-    subFeeds: List<SubFeedEntity>, selectedId: Long?, favMode: Boolean, archivedMode: Boolean,
-    onArchived: () -> Unit, onSelect: (Long?) -> Unit, onLongPress: (SubFeedEntity) -> Unit
+private fun DropdownSelector(
+    label: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.(close: () -> Unit) -> Unit
 ) {
-    LazyRow(
-        Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        contentPadding = PaddingValues(horizontal = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (favMode) item { Text("CAT>", color = Grim.Dim, fontFamily = Mono, fontSize = 10.sp) }
-        item { MonoButton("ALL", { onSelect(null) }, selectedId == null && !archivedMode) }
-        items(subFeeds, key = { it.id }) { sf ->
-            MonoButton(sf.name.uppercase(), { onSelect(sf.id) }, selectedId == sf.id && !archivedMode, onLongClick = { onLongPress(sf) })
-        }
-        if (!favMode) item { MonoButton("ARCHIVED", onArchived, archivedMode) }
+    var open by remember { mutableStateOf(false) }
+    Box(modifier) {
+        ActionButton("$label ▼", { open = true }, Modifier.fillMaxWidth(), height = 38.dp, size = 12, hPad = 8.dp, vPad = 4.dp)
+        DropdownMenu(
+            expanded = open, onDismissRequest = { open = false },
+            modifier = Modifier.background(Palette.Surface).border(1.dp, Palette.Border)
+        ) { content { open = false } }
     }
 }
-// dark emerald (#0D1F12) -> phosphor green (#9EE052) duotone
-private val duotone = ColorMatrix(
-    floatArrayOf(
-        0.2126f * 145 / 255, 0.7152f * 145 / 255, 0.0722f * 145 / 255, 0f, 13f,
-        0.2126f * 193 / 255, 0.7152f * 193 / 255, 0.0722f * 193 / 255, 0f, 31f,
-        0.2126f * 64 / 255, 0.7152f * 64 / 255, 0.0722f * 64 / 255, 0f, 18f,
-        0f, 0f, 0f, 1f, 0f
+
+@Composable
+private fun MenuRow(
+    text: String, selected: Boolean = false, color: Color = Palette.Text,
+    trailing: (@Composable () -> Unit)? = null, onClick: () -> Unit
+) {
+    DropdownMenuItem(
+        text = {
+            Text(
+                text, color = if (selected) Palette.Accent else color, fontFamily = Heavy,
+                fontWeight = if (selected) FontWeight.Black else FontWeight.Bold, fontSize = 14.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis
+            )
+        },
+        onClick = onClick,
+        leadingIcon = if (selected) ({ Icon(Icons.Filled.Check, null, tint = Palette.Accent, modifier = Modifier.size(18.dp)) }) else null,
+        trailingIcon = trailing
     )
-)
+}
+
+@Composable
+private fun MenuHeader(text: String) {
+    Text(
+        text.uppercase(), color = Palette.Dim, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp,
+        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp)
+    )
+}
+
+// ── Video list ──────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VideoList(
-    videos: List<VideoEntity>, refreshing: Boolean, onRefresh: () -> Unit, onOpen: (String) -> Unit,
-    onFav: (String, Boolean) -> Unit, onRead: (String, Boolean) -> Unit, onPurge: (String) -> Unit,
-    progress: Map<String, Int> = emptyMap()
+    videos: List<VideoEntity>, refreshing: Boolean, onRefresh: () -> Unit, emptyText: String,
+    progress: Map<String, Int>, membership: Map<String, Set<Long>>, activePlaylistId: Long?,
+    onOpen: (VideoEntity) -> Unit, onFav: (String, Boolean) -> Unit, onRead: (String, Boolean) -> Unit,
+    onDeleteDownload: (VideoEntity) -> Unit, onAddToPlaylist: (VideoEntity) -> Unit,
+    onRemoveFromPlaylist: (VideoEntity) -> Unit
 ) {
     val state = rememberPullToRefreshState()
     PullToRefreshBox(
@@ -355,262 +396,111 @@ fun VideoList(
             PullToRefreshDefaults.Indicator(
                 state = state, isRefreshing = refreshing,
                 modifier = Modifier.align(Alignment.TopCenter),
-                containerColor = Grim.Obsidian, color = Grim.Phosphor
+                containerColor = Palette.Surface, color = Palette.Accent
             )
         }
     ) {
         LazyColumn(
-            Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 6.dp, end = 6.dp, top = 4.dp, bottom = 28.dp),
+            Modifier.fillMaxSize().background(Palette.Surface, RoundedCornerShape(8.dp)).border(1.dp, Palette.Border, RoundedCornerShape(8.dp)),
+            contentPadding = PaddingValues(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             if (videos.isEmpty()) item {
-                Box(Modifier.fillParentMaxSize(), Alignment.Center) {
-                    Text("NO SIGNAL", color = Grim.Dim, fontFamily = Mono, fontSize = 12.sp)
+                Box(Modifier.fillParentMaxSize().padding(24.dp), Alignment.Center) {
+                    Text(emptyText, color = Palette.Dim, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 }
             }
-            items(videos, key = { it.videoId }) { v -> VideoCard(v, onOpen, onFav, onRead, onPurge, progress[v.videoId]) }
+            items(videos, key = { it.videoId }) { v ->
+                VideoCard(
+                    v, progress[v.videoId], inActivePlaylist = activePlaylistId != null && activePlaylistId in (membership[v.videoId] ?: emptySet()),
+                    onOpen = { onOpen(v) }, onFav = onFav, onRead = onRead, onDeleteDownload = onDeleteDownload,
+                    onAddToPlaylist = onAddToPlaylist, onRemoveFromPlaylist = onRemoveFromPlaylist
+                )
+            }
         }
     }
 }
+
 @Composable
 private fun VideoCard(
-    v: VideoEntity, onOpen: (String) -> Unit,
-    onFav: (String, Boolean) -> Unit, onRead: (String, Boolean) -> Unit, onPurge: (String) -> Unit,
-    archivePct: Int? = null
+    v: VideoEntity, archivePct: Int?, inActivePlaylist: Boolean,
+    onOpen: () -> Unit, onFav: (String, Boolean) -> Unit, onRead: (String, Boolean) -> Unit,
+    onDeleteDownload: (VideoEntity) -> Unit, onAddToPlaylist: (VideoEntity) -> Unit, onRemoveFromPlaylist: (VideoEntity) -> Unit
 ) {
-    val shape = RoundedCornerShape(2.dp)
+    val shape = RoundedCornerShape(8.dp)
+    var menu by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth()
-            .background(Grim.Card, shape).border(1.dp, Grim.Brass, shape)
-            .clickable { onOpen(v.videoId) }.padding(5.dp),
+        Modifier.fillMaxWidth().background(Palette.Bg, shape).border(1.dp, Palette.Border, shape)
+            .clickable(onClick = onOpen).padding(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         AsyncImage(
-            model = v.thumbnailUrl, contentDescription = null,
-            contentScale = ContentScale.Crop,
-            colorFilter = ColorFilter.colorMatrix(duotone),
-            modifier = Modifier.width(84.dp).aspectRatio(16f / 9f).alpha(if (v.isRead) 0.5f else 1f).border(1.dp, Grim.Brass, shape)
+            model = v.thumbnailUrl, contentDescription = null, contentScale = ContentScale.Crop,
+            modifier = Modifier.width(96.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(4.dp)).alpha(if (v.isRead) 0.5f else 1f)
         )
-        Spacer(Modifier.width(6.dp))
-        Column(Modifier.weight(1f).alpha(if (v.isRead) 0.55f else 1f)) {
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f).alpha(if (v.isRead) 0.6f else 1f)) {
             Text(
-                v.title, color = Grim.Cream, fontFamily = Condensed, fontWeight = FontWeight.Bold,
-                fontSize = 13.sp, lineHeight = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis
+                v.title, color = Palette.Text, fontFamily = Heavy, fontWeight = FontWeight.Bold,
+                fontSize = 14.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis
             )
-            Text(v.channelTitle, color = Grim.Phosphor, fontFamily = Mono, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(relativeTime(v.publishedAt), color = Grim.Dim, fontFamily = Mono, fontSize = 9.sp)
+            Text(v.channelTitle, color = Palette.Accent, fontFamily = Mono, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(relativeTime(v.publishedAt), color = Palette.Dim, fontFamily = Mono, fontSize = 10.sp)
             if (archivePct != null && !v.isArchived) {
                 Text(
-                    "ARCHIVING: ${archivePct.coerceIn(0, 99)}%", Modifier.padding(top = 3.dp),
-                    color = Grim.Phosphor, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 9.sp
+                    "Downloading: ${archivePct.coerceIn(0, 99)}%", Modifier.padding(top = 2.dp),
+                    color = Palette.Amber, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp
                 )
             }
             if (v.isArchived) {
                 Text(
-                    "[ PURGE ]",
-                    Modifier.padding(top = 3.dp).border(1.dp, Grim.Brass, RoundedCornerShape(2.dp))
-                        .clickable { onPurge(v.videoId) }.padding(horizontal = 6.dp, vertical = 2.dp),
-                    color = Grim.Cream, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1
+                    "Downloaded", Modifier.padding(top = 3.dp).border(1.dp, Palette.Accent, RoundedCornerShape(4.dp)).padding(horizontal = 4.dp),
+                    color = Palette.Accent, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1
                 )
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            AquilaIcon(
-                v.isFavorite,
-                Modifier.size(34.dp).clickable { onFav(v.videoId, !v.isFavorite) }.padding(4.dp)
-            )
-            PuritySealBadge(
-                v.isRead,
-                Modifier.size(34.dp).clickable { onRead(v.videoId, !v.isRead) }.padding(4.dp)
-            )
-        }
-    }
-}
-
-private val AquilaGold = Color(0xFFD4AF37)
-private val WeatheredIron = Color(0xFF3A3F3A)
-private val PurityGreen = Color(0xFF00FF41)
-private val ObsidianInk = Color(0xFF0A0D0A)
-private val Crimson = Color(0xFFB3202A)
-
-/** Imperial Aquila: glowing brass-gold when favorited, dim weathered iron otherwise. */
-@Composable
-private fun AquilaIcon(favorited: Boolean, modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        val s = size.minDimension / 24f
-        val ox = (size.width - 24f * s) / 2f
-        val oy = (size.height - 24f * s) / 2f
-        fun Path.poly(pts: List<Pair<Float, Float>>) {
-            pts.forEachIndexed { i, (x, y) ->
-                val px = ox + x * s; val py = oy + y * s
-                if (i == 0) moveTo(px, py) else lineTo(px, py)
-            }
-            close()
-        }
-        fun mirror(p: List<Pair<Float, Float>>) = p.map { (24f - it.first) to it.second }
-        val wing = listOf(
-            9.6f to 9.2f, 2.5f to 4.5f, 3.2f to 8f, 1.2f to 9.6f, 3.6f to 11.6f,
-            2.6f to 14.2f, 5.4f to 14.8f, 4.8f to 17.4f, 9.9f to 14f
-        )
-        val torso = listOf(12f to 6.4f, 14.6f to 9.2f, 13.6f to 16.4f, 12f to 19.2f, 10.4f to 16.4f, 9.4f to 9.2f)
-        val tail = listOf(10.4f to 19f, 9.2f to 22.6f, 12f to 21f, 14.8f to 22.6f, 13.6f to 19f)
-        val beakL = listOf(7.9f to 4.7f, 5.6f to 6f, 8f to 6.7f)
-        val path = Path().apply {
-            poly(wing); poly(mirror(wing)); poly(torso); poly(tail); poly(beakL); poly(mirror(beakL))
-        }
-        val color = if (favorited) AquilaGold else WeatheredIron
-        if (favorited) {
-            drawPath(path, AquilaGold.copy(alpha = 0.35f), style = Stroke(width = 3.2f * s, join = StrokeJoin.Round))
-        }
-        drawPath(path, color)
-        drawCircle(color, 1.7f * s, Offset(ox + 9.4f * s, oy + 5.2f * s))
-        drawCircle(color, 1.7f * s, Offset(ox + 14.6f * s, oy + 5.2f * s))
-        // etched detail: eye sockets and a spine line
-        val etch = if (favorited) ObsidianInk else Color(0xFF1B1F1B)
-        drawCircle(etch, 0.5f * s, Offset(ox + 9.0f * s, oy + 5.0f * s))
-        drawCircle(etch, 0.5f * s, Offset(ox + 15.0f * s, oy + 5.0f * s))
-        drawLine(etch, Offset(ox + 12f * s, oy + 8.5f * s), Offset(ox + 12f * s, oy + 18f * s), 0.9f * s)
-    }
-}
-
-/** Purity Seal: bright phosphor-green wax rosette with a bold check-rune and obsidian border when watched. */
-@Composable
-private fun PuritySealBadge(watched: Boolean, modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        val c = center
-        val r = size.minDimension / 2f
-        val rosette = Path().apply {
-            val n = 16
-            for (i in 0 until n * 2) {
-                val a = Math.PI * i / n - Math.PI / 2
-                val rad = if (i % 2 == 0) r else r * 0.84f
-                val x = c.x + (rad * Math.cos(a)).toFloat(); val y = c.y + (rad * Math.sin(a)).toFloat()
-                if (i == 0) moveTo(x, y) else lineTo(x, y)
-            }
-            close()
-        }
-        val check = Path().apply {
-            moveTo(c.x - r * 0.42f, c.y + r * 0.02f)
-            lineTo(c.x - r * 0.1f, c.y + r * 0.36f)
-            lineTo(c.x + r * 0.46f, c.y - r * 0.34f)
-        }
-        if (watched) {
-            drawPath(rosette, PurityGreen.copy(alpha = 0.3f), style = Stroke(width = r * 0.35f, join = StrokeJoin.Round))
-            drawPath(rosette, PurityGreen)
-            drawPath(rosette, ObsidianInk, style = Stroke(width = r * 0.14f, join = StrokeJoin.Round))
-            drawCircle(ObsidianInk, r * 0.62f, c, style = Stroke(width = r * 0.08f))
-            drawPath(check, ObsidianInk, style = Stroke(width = r * 0.24f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-        } else {
-            drawPath(rosette, WeatheredIron, style = Stroke(width = r * 0.1f, join = StrokeJoin.Round))
-            drawPath(check, WeatheredIron.copy(alpha = 0.6f), style = Stroke(width = r * 0.14f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-        }
-    }
-}
-
-/** Obsidian-and-brass confirmation before an archived data-slate is expunged. */
-@Composable
-fun PurgeConfirmDialog(videoTitle: String, onAbort: () -> Unit, onExpunge: () -> Unit) {
-    GrimDialog(onDismiss = onAbort) {
-        GrimLabel("// CONFIRM DATA-SLATE EXPUNGEMENT //", Grim.Phosphor, 13.sp)
-        Text(
-            "Permanently purge local archive for '$videoTitle'? This action cannot be undone.",
-            color = Grim.Cream, fontFamily = Mono, fontSize = 12.sp
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GrimButton("[ ABORT ]", onAbort, Modifier.weight(1f))
-            GrimButton("[ EXPUNGE ]", onExpunge, Modifier.weight(1f), borderColor = Crimson)
-        }
-    }
-}
-
-// ── Grimdark cogitator dialogs ──────────────────────────────────────────────
-
-private val PlateShape = CutCornerShape(topStart = 6.dp, bottomEnd = 6.dp)
-
-@Composable
-fun GrimLabel(text: String, color: Color = Grim.Cream, size: androidx.compose.ui.unit.TextUnit = 11.sp) {
-    Text(text.uppercase(), color = color, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = size)
-}
-
-/** Obsidian terminal panel: brass border, scanlines and corner rivets. Dismisses on scrim tap / back. */
-@Composable
-fun GrimDialog(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(
-            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f))
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss)
-                .imePadding().systemBarsPadding().padding(16.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            val shape = RoundedCornerShape(2.dp)
-            Box(
-                Modifier.fillMaxWidth().clip(shape).background(Grim.Obsidian).border(1.5.dp, Grim.Brass, shape)
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
-            ) {
-                Column(
-                    Modifier.verticalScroll(rememberScrollState()).padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp), content = content
-                )
-                CrtOverlay(Modifier.matchParentSize(), vignette = false)
-                Canvas(Modifier.matchParentSize()) {
-                    val inset = 6.dp.toPx(); val r = 2.2.dp.toPx()
-                    listOf(
-                        Offset(inset, inset), Offset(size.width - inset, inset),
-                        Offset(inset, size.height - inset), Offset(size.width - inset, size.height - inset)
-                    ).forEach {
-                        drawCircle(Grim.Brass, r, it)
-                        drawCircle(Grim.BrassBright.copy(alpha = 0.7f), r * 0.4f, it - Offset(r * 0.25f, r * 0.25f))
-                    }
+            Box {
+                IconButton({ menu = true }, Modifier.size(40.dp)) { Icon(Icons.Filled.MoreVert, "More actions", tint = Palette.Text) }
+                DropdownMenu(
+                    expanded = menu, onDismissRequest = { menu = false },
+                    modifier = Modifier.background(Palette.Surface).border(1.dp, Palette.Border)
+                ) {
+                    MenuRow("Add to Playlist...") { menu = false; onAddToPlaylist(v) }
+                    if (inActivePlaylist) MenuRow("Remove from This Playlist") { menu = false; onRemoveFromPlaylist(v) }
+                    MenuRow(if (v.isFavorite) "Remove Favorite" else "Add to Favorites") { menu = false; onFav(v.videoId, !v.isFavorite) }
+                    MenuRow(if (v.isRead) "Mark as Unwatched" else "Mark as Watched") { menu = false; onRead(v.videoId, !v.isRead) }
+                    if (v.isArchived) MenuRow("Delete Download", color = Palette.Alert) { menu = false; onDeleteDownload(v) }
                 }
             }
+            IconButton({ onFav(v.videoId, !v.isFavorite) }, Modifier.size(40.dp)) {
+                Icon(
+                    if (v.isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                    if (v.isFavorite) "Remove favorite" else "Add favorite",
+                    tint = if (v.isFavorite) Palette.Accent else Palette.Dim
+                )
+            }
         }
     }
 }
 
+/** Confirmation before a downloaded video file is deleted. */
 @Composable
-fun GrimButton(
-    label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
-    borderColor: Color = Grim.Brass
-) {
-    Box(
-        modifier.alpha(if (enabled) 1f else 0.4f)
-            .clip(PlateShape)
-            .background(Brush.verticalGradient(listOf(Color(0xFF3A3220), Color(0xFF1E1A10))))
-            .border(1.5.dp, borderColor, PlateShape)
-            .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 10.dp, vertical = 11.dp),
-        contentAlignment = Alignment.Center
-    ) { GrimLabel(label, if (enabled) Grim.Phosphor else Grim.Dim, 12.sp) }
-}
-
-@Composable
-private fun GrimField(value: String, onChange: (String) -> Unit, label: String, modifier: Modifier = Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        GrimLabel(label, Grim.Cream, 10.sp)
-        val shape = RoundedCornerShape(2.dp)
-        BasicTextField(
-            value, onChange, singleLine = true,
-            textStyle = TextStyle(color = Grim.Phosphor, fontFamily = Mono, fontSize = 13.sp),
-            cursorBrush = SolidColor(Grim.Phosphor),
-            modifier = Modifier.fillMaxWidth().background(Grim.Card, shape).border(1.dp, Grim.Brass, shape)
-                .padding(horizontal = 10.dp, vertical = 10.dp)
+fun DeleteDownloadDialog(videoTitle: String, onCancel: () -> Unit, onDelete: () -> Unit) {
+    AppDialog(onDismiss = onCancel) {
+        AppLabel("Delete download?", Palette.Alert, 16.sp)
+        Text(
+            "Permanently delete the downloaded copy of '$videoTitle'? This action cannot be undone.",
+            color = Palette.Text, fontSize = 13.sp
         )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionButton("Cancel", onCancel, Modifier.weight(1f))
+            ActionButton("Delete", onDelete, Modifier.weight(1f), accent = true)
+        }
     }
 }
 
-@Composable
-fun GrimChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(2.dp)
-    Text(
-        label.uppercase(),
-        Modifier.border(1.5.dp, if (selected) Grim.Phosphor else Grim.Brass, shape)
-            .background(if (selected) Grim.Phosphor.copy(alpha = 0.15f) else Grim.Card, shape)
-            .clickable(onClick = onClick).padding(horizontal = 9.dp, vertical = 6.dp),
-        color = if (selected) Grim.Phosphor else Grim.Cream,
-        fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1
-    )
-}
-
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AddChannelSheet(
     subFeeds: List<SubFeedEntity>, preselect: Long?,
@@ -628,26 +518,26 @@ fun AddChannelSheet(
         }
     }
 
-    GrimDialog(onDismiss) {
-        GrimLabel("// EXTRACT CHANNEL DATA-STREAM", Grim.Phosphor, 13.sp)
-        GrimField(input, { input = it }, "@HANDLE, URL OR UC… ID")
-        GrimLabel("TARGET CATEGORY", Grim.Cream, 10.sp)
-        if (subFeeds.isEmpty()) GrimLabel("NO CATEGORIES FORGED", Grim.Dim, 10.sp)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            subFeeds.forEach { GrimChip(it.name, selected?.id == it.id) { selected = it } }
+    AppFormDialog(onDismiss) {
+        AppLabel("Add Channel", Palette.Text, 18.sp)
+        NameField(input, { input = it }, "@handle, URL or channel ID")
+        AppLabel("Group", Palette.Dim, 11.sp)
+        if (subFeeds.isEmpty()) Text("No groups yet. Create one below.", color = Palette.Dim, fontSize = 12.sp)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            subFeeds.forEach { Chip(it.name, selected?.id == it.id) { selected = it } }
         }
-        GrimField(newCategory, { newCategory = it }, "NEW CATEGORY")
-        GrimButton(
-            "[ + FORGE CATEGORY ]",
+        NameField(newCategory, { newCategory = it }, "New group name")
+        ActionButton(
+            "+ Create Group",
             { pendingName = newCategory.trim(); onAddCategory(newCategory.trim()); newCategory = "" },
             Modifier.fillMaxWidth(), enabled = newCategory.isNotBlank()
         )
-        GrimChip(if (excludeShorts) "[X] EXCLUDE SHORTS" else "[ ] EXCLUDE SHORTS", excludeShorts) { excludeShorts = !excludeShorts }
+        Chip(if (excludeShorts) "✓ Exclude Shorts" else "Exclude Shorts", excludeShorts) { excludeShorts = !excludeShorts }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GrimButton("[ ABORT ]", onDismiss, Modifier.weight(1f))
-            GrimButton(
-                "[ INITIATE EXTRACTION ]", { selected?.let { onSave(input, it.id, excludeShorts) } },
-                Modifier.weight(2f), enabled = input.isNotBlank() && selected != null
+            ActionButton("Cancel", onDismiss, Modifier.weight(1f))
+            ActionButton(
+                "Add Channel", { selected?.let { onSave(input, it.id, excludeShorts) } },
+                Modifier.weight(2f), enabled = input.isNotBlank() && selected != null, accent = true
             )
         }
     }

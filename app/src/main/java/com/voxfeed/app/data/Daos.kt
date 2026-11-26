@@ -137,3 +137,34 @@ interface DigestDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(row: DigestEntity)
 }
+
+
+@Dao
+interface VideoPlaylistDao {
+    @Query("SELECT * FROM video_playlists ORDER BY id")
+    fun observePlaylists(): Flow<List<VideoPlaylistEntity>>
+
+    @Query("SELECT * FROM video_playlist_items")
+    fun observeItems(): Flow<List<VideoPlaylistItemEntity>>
+
+    /** Videos in one playlist, oldest addition first. */
+    @Query(
+        "SELECT v.* FROM videos v INNER JOIN video_playlist_items i ON i.videoId = v.videoId " +
+            "WHERE i.playlistId = :playlistId ORDER BY i.addedAt, v.publishedAt DESC"
+    )
+    fun observeVideos(playlistId: Long): Flow<List<VideoEntity>>
+
+    @Insert suspend fun insertPlaylist(p: VideoPlaylistEntity): Long
+
+    @Query("UPDATE video_playlists SET name = :name WHERE id = :id")
+    suspend fun rename(id: Long, name: String)
+
+    @Query("DELETE FROM video_playlists WHERE id = :id")
+    suspend fun deletePlaylist(id: Long)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun addItem(item: VideoPlaylistItemEntity): Long
+
+    @Query("DELETE FROM video_playlist_items WHERE playlistId = :playlistId AND videoId = :videoId")
+    suspend fun removeItem(playlistId: Long, videoId: String)
+}

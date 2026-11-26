@@ -44,7 +44,7 @@ class VoxPlaybackService : MediaSessionService() {
         if (android.os.Build.VERSION.SDK_INT >= 26) {
             // Pre-create media3's default notification channel so the launcher icon never gets a badge dot.
             val nm = getSystemService(android.app.NotificationManager::class.java)
-            val channel = android.app.NotificationChannel("default_channel_id", "Vox Playback", android.app.NotificationManager.IMPORTANCE_LOW)
+            val channel = android.app.NotificationChannel("default_channel_id", "Playback", android.app.NotificationManager.IMPORTANCE_LOW)
             channel.setShowBadge(false)
             nm.createNotificationChannel(channel)
         }
@@ -92,10 +92,10 @@ class VoxPlaybackService : MediaSessionService() {
                     // Music track: notification returns to the app (MainActivity), not the video player.
                     Intent(this@VoxPlaybackService, MainActivity::class.java)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                } else Intent(this@VoxPlaybackService, PictFeedActivity::class.java)
-                    .putExtra(PictFeedActivity.VIDEO_ID, extras.getString(EXTRA_VIDEO_ID))
-                    .putExtra(PictFeedActivity.VIDEO_TITLE, mediaItem.mediaMetadata.title?.toString().orEmpty())
-                    .putExtra(PictFeedActivity.VIDEO_DESCRIPTION, extras.getString(EXTRA_DESCRIPTION).orEmpty())
+                } else Intent(this@VoxPlaybackService, VideoPlayerActivity::class.java)
+                    .putExtra(VideoPlayerActivity.VIDEO_ID, extras.getString(EXTRA_VIDEO_ID))
+                    .putExtra(VideoPlayerActivity.VIDEO_TITLE, mediaItem.mediaMetadata.title?.toString().orEmpty())
+                    .putExtra(VideoPlayerActivity.VIDEO_DESCRIPTION, extras.getString(EXTRA_DESCRIPTION).orEmpty())
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 session.setSessionActivity(
                     PendingIntent.getActivity(
@@ -146,8 +146,8 @@ class VoxPlaybackService : MediaSessionService() {
                 val safe = item.buildUpon().setMediaMetadata(
                     md.buildUpon()
                         .setTitle(clean(md.title, "Unknown Audio-Stream"))
-                        .setArtist(clean(md.artist, "VoxFeed Audio"))
-                        .setAlbumTitle(clean(md.albumTitle, "Vox-Archive"))
+                        .setArtist(clean(md.artist, "Unknown Artist"))
+                        .setAlbumTitle(clean(md.albumTitle, "VoxPlayer"))
                         .build()
                 )
                 if (first != null) safe.setUri(first).build() else safe.build()
@@ -205,10 +205,10 @@ class VoxPlaybackService : MediaSessionService() {
         const val EXTRA_URIS = "vox.uris"
         const val EXTRA_VIDEO_ID = "vox.videoId"
         const val EXTRA_DESCRIPTION = "vox.description"
-        /** Marks a MediaItem as a Mek-Amp music track (vs. a VoxFeed video). */
+        /** Marks a MediaItem as a audio-deck track (vs. a video). */
         const val EXTRA_MUSIC = "vox.music"
         /** Set on music items playing from a local (downloaded) file. */
-        const val EXTRA_STASHED = "vox.stashed"
+        const val EXTRA_CACHED = "vox.cached"
 
         fun extras(videoId: String, description: String, uris: List<String>): Bundle = Bundle().apply {
             putStringArray(EXTRA_URIS, uris.toTypedArray())

@@ -11,8 +11,8 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:hardwareAccelerated="true"
         android:allowBackup="true"
-        android:label="VoxFeed"
-        android:theme="@style/Theme.VoxFeed">
+        android:label="VoxPlayer"
+        android:theme="@style/Theme.VoxPlayer">
         <activity android:name=".MainActivity"
             android:screenOrientation="portrait" android:hardwareAccelerated="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
@@ -23,7 +23,7 @@
             </intent-filter>
         </activity>
         <activity
-            android:name=".PictFeedActivity"
+            android:name=".VideoPlayerActivity"
             android:exported="false"
             android:hardwareAccelerated="true"
             android:screenOrientation="sensor"

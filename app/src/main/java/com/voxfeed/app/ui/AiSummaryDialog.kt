@@ -32,29 +32,29 @@ import com.voxfeed.app.data.SummaryDepth
 import com.voxfeed.app.worker.PollPrefs
 import kotlinx.coroutines.delay
 
-/** Communion state of a digest request (the cached digest itself lives in Room). */
-sealed interface IntelState {
-    object Idle : IntelState
-    object Loading : IntelState
-    data class Failed(val message: String) : IntelState
+/** State of a summary request (the cached summary itself lives in Room). */
+sealed interface SummaryState {
+    object Idle : SummaryState
+    object Loading : SummaryState
+    data class Failed(val message: String) : SummaryState
 }
 
-private val Obsidian = Color(0xFF0A0D0A)
-private val Brass = Color(0xFF8C7832)
-private val Cream = Color(0xFFD8D5A8)
-private val PhosphorGreen = Color(0xFF00FF41)
-private val Crimson = Color(0xFFB3202A)
+private val Obsidian = Palette.Bg
+private val Brass = Palette.Border
+private val Cream = Palette.Text
+private val PhosphorGreen = Palette.Accent
+private val Crimson = Palette.Alert
 private val CrimsonText = Color(0xFFFF6B6B)
 
-private val RITUAL_LINES = listOf(
-    "// WARNING: ACCESSING FORBIDDEN SILICA ANIMUS //",
-    "// BYPASSING MARS INQUISITORIAL SEALS... //",
-    "// EXTRACTING VOX-TRANSCRIPT FROM NOOSPHERE... //",
-    "// SANCTIFYING ABOMINABLE DATA-STREAM... //"
+private val LOADING_LINES = listOf(
+    "Fetching transcript...",
+    "Analyzing video content...",
+    "Writing summary...",
+    "Almost done..."
 )
 
 private const val NO_KEY_MESSAGE =
-    "// HERESY BLOCKED: NO COGITATOR KEY // CONFIGURE SILICA ANIMUS CREDENTIALS IN RITES."
+    "No Gemini API key set. Add one in Settings to use AI summaries."
 
 private val URL_REGEX = Regex("""https?://[^\s<>"')\]]+""")
 /** [MM:SS] or [H:MM:SS] */
@@ -69,12 +69,12 @@ private fun stampToMs(m: MatchResult): Long {
 }
 
 /**
- * Monospace terminal text. With [linksEnabled], http(s) URLs are underlined phosphor green and open via
+ * Summary text. With [linksEnabled], http(s) URLs are underlined phosphor green and open via
  * Intent.ACTION_VIEW. When [onTimestamp] is set, [MM:SS] / [HH:MM:SS] markers become amber clickable
  * spans that report their position in milliseconds.
  */
 @Composable
-fun LinkifiedTerminalText(
+fun LinkifiedText(
     text: String, linksEnabled: Boolean, modifier: Modifier = Modifier, onTimestamp: ((Long) -> Unit)? = null
 ) {
     val ctx = LocalContext.current
@@ -111,7 +111,7 @@ fun LinkifiedTerminalText(
                         LinkAnnotation.Clickable(
                             tag = token,
                             styles = TextLinkStyles(
-                                SpanStyle(color = Grim.Amber, fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline)
+                                SpanStyle(color = Palette.Amber, fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline)
                             )
                         ) { currentOnTimestamp?.invoke(ms) }
                     ) { append(token) }
@@ -126,11 +126,11 @@ fun LinkifiedTerminalText(
     )
 }
 @Composable
-private fun IntelButton(
+private fun SummaryButton(
     label: String, onClick: () -> Unit, modifier: Modifier = Modifier, border: Color = Brass, selected: Boolean = false
 ) {
     Box(
-        modifier.background(if (selected) PhosphorGreen.copy(alpha = 0.15f) else Grim.Card).border(1.5.dp, border).clickable(onClick = onClick)
+        modifier.background(if (selected) PhosphorGreen.copy(alpha = 0.15f) else Palette.Surface).border(1.5.dp, border).clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -142,7 +142,7 @@ private fun IntelButton(
 }
 
 @Composable
-private fun CrimsonPlate(message: String, modifier: Modifier = Modifier) {
+private fun ErrorPlate(message: String, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().background(Color(0xFF2A1214)).border(1.5.dp, Crimson).padding(14.dp)) {
         Text(
             message, color = CrimsonText, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
@@ -151,10 +151,10 @@ private fun CrimsonPlate(message: String, modifier: Modifier = Modifier) {
     }
 }
 
-/** Full-screen Silica Animus overlay: obsidian field, double brass border. */
+/** Full-screen AI summary dialog. */
 @Composable
-fun AbominableIntelModal(
-    voxDigest: String?, state: IntelState, depth: SummaryDepth, onDepthChange: (SummaryDepth) -> Unit,
+fun AiSummaryDialog(
+    voxDigest: String?, state: SummaryState, depth: SummaryDepth, onDepthChange: (SummaryDepth) -> Unit,
     onGenerate: () -> Unit, onSeek: (Long) -> Unit, onClose: () -> Unit
 ) {
     val ctx = LocalContext.current
@@ -165,65 +165,65 @@ fun AbominableIntelModal(
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(
             Modifier.fillMaxSize().background(Obsidian).systemBarsPadding().padding(6.dp)
-                .border(2.dp, Brass).padding(4.dp).border(1.dp, Brass).padding(14.dp)
+                .border(1.dp, Brass).padding(14.dp)
         ) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "// ABOMINABLE INTELLIGENCE // SILICA ANIMUS", color = PhosphorGreen,
-                    fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 12.sp
+                    "AI Summary", color = PhosphorGreen,
+                    fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 16.sp
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SummaryDepth.entries.forEach { d ->
                         val on = d == depth
-                        IntelButton(
-                            "[ ${d.label} ]", { onDepthChange(d) }, Modifier.weight(1f),
+                        SummaryButton(
+                            d.label, { onDepthChange(d) }, Modifier.weight(1f),
                             border = if (on) PhosphorGreen else Brass, selected = on
                         )
                     }
                 }
-                val scanning = state is IntelState.Loading
-                IntelButton(
-                    if (voxDigest != null) "[ RE-SCAN ]" else "[ INITIATE SCAN ]",
+                val scanning = state is SummaryState.Loading
+                SummaryButton(
+                    if (voxDigest != null) "Re-scan" else "Scan Video",
                     { if (hasKey && !scanning) onGenerate() }, Modifier.fillMaxWidth().alpha(if (hasKey && !scanning) 1f else 0.4f),
                     border = PhosphorGreen
                 )
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when {
-                        !hasKey -> CrimsonPlate(NO_KEY_MESSAGE)
-                        state is IntelState.Loading -> Ritual()
-                        state is IntelState.Failed -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            CrimsonPlate(state.message)
+                        !hasKey -> ErrorPlate(NO_KEY_MESSAGE)
+                        state is SummaryState.Loading -> LoadingLines()
+                        state is SummaryState.Failed -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            ErrorPlate(state.message)
                         }
                         voxDigest != null -> Column(
-                            Modifier.fillMaxSize().border(1.dp, Brass).background(Grim.Card)
+                            Modifier.fillMaxSize().border(1.dp, Brass).background(Palette.Surface)
                                 .verticalScroll(rememberScrollState()).padding(12.dp)
-                        ) { LinkifiedTerminalText(voxDigest, linksOn, onTimestamp = onSeek) }
+                        ) { LinkifiedText(voxDigest, linksOn, onTimestamp = onSeek) }
                         else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text(
-                                "SELECT SCAN DEPTH AND INITIATE ANALYSIS", color = Brass, fontFamily = FontFamily.Monospace,
+                                "Choose a scan depth, then tap Scan Video.", color = Brass, fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold, fontSize = 13.sp, textAlign = TextAlign.Center
                             )
                         }
                     }
                 }
-                IntelButton("[ SEAL ARCHIVE / CLOSE ]", onClose, Modifier.fillMaxWidth())
+                SummaryButton("Close", onClose, Modifier.fillMaxWidth())
             }
         }
     }
 }
 
 @Composable
-private fun Ritual() {
+private fun LoadingLines() {
     var idx by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
             delay(900)
-            idx = (idx + 1) % RITUAL_LINES.size
+            idx = (idx + 1) % LOADING_LINES.size
         }
     }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(
-            RITUAL_LINES[idx], color = PhosphorGreen, fontFamily = FontFamily.Monospace,
+            LOADING_LINES[idx], color = PhosphorGreen, fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold, fontSize = 13.sp, textAlign = TextAlign.Center
         )
     }

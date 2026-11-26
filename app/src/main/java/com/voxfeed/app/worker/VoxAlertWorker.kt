@@ -20,7 +20,7 @@ import com.voxfeed.app.data.YouTubeRssRepository
 
 /**
  * Polls only alert-enabled channels, applies the lookback window, inserts new videos into Room
- * and posts a grouped "Vox Alerts" notification. Existing rows are never overwritten (IGNORE inserts).
+ * and posts a grouped "New videos" notification. Existing rows are never overwritten (IGNORE inserts).
  */
 class VoxAlertWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
 
@@ -43,7 +43,7 @@ class VoxAlertWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         ) return
         if (Build.VERSION.SDK_INT >= 26) {
             c.getSystemService(NotificationManager::class.java).createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Vox Alerts", NotificationManager.IMPORTANCE_DEFAULT).apply { setShowBadge(false) }
+                NotificationChannel(CHANNEL_ID, "New videos", NotificationManager.IMPORTANCE_DEFAULT).apply { setShowBadge(false) }
             )
         }
         val nm = NotificationManagerCompat.from(c)
@@ -58,7 +58,7 @@ class VoxAlertWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         videos.take(MAX_INDIVIDUAL).forEach { v ->
             val n = NotificationCompat.Builder(c, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle(v.title.ifBlank { "NEW TRANSMISSION" })
+                .setContentTitle(v.title.ifBlank { "New video" })
                 .setContentText(v.channelTitle)
                 .setGroup(GROUP_KEY)
                 .setContentIntent(pending(v.videoId.hashCode(), v.videoId))
@@ -68,13 +68,13 @@ class VoxAlertWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         }
 
         val inbox = NotificationCompat.InboxStyle()
-        videos.take(MAX_INDIVIDUAL).forEach { inbox.addLine("${it.channelTitle} � ${it.title}") }
+        videos.take(MAX_INDIVIDUAL).forEach { inbox.addLine("${it.channelTitle} - ${it.title}") }
         if (videos.size > MAX_INDIVIDUAL) inbox.addLine("+${videos.size - MAX_INDIVIDUAL} more")
         val count = videos.size
-        val summaryText = "$count NEW TRANSMISSION${if (count == 1) "" else "S"} INTERCEPTED"
+        val summaryText = "$count new video${if (count == 1) "" else "s"}"
         val summary = NotificationCompat.Builder(c, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle("VOX-ALERT")
+            .setContentTitle("New videos")
             .setContentText(summaryText)
             .setStyle(inbox.setSummaryText(summaryText))
             .setGroup(GROUP_KEY)
