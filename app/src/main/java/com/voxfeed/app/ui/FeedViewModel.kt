@@ -91,7 +91,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         lookbackHours.value = h
     }
 
-    // ── Video playlists ──
+    // - Video playlists -
     private val playlistDao = db.videoPlaylistDao()
     val videoPlaylists: StateFlow<List<VideoPlaylistEntity>> = playlistDao.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -245,7 +245,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun clearMessage() { message.value = null }
 
-    // ── Playlist actions ──
+    // - Playlist actions -
     /** Creates a playlist, optionally adding [videoId] to it, and returns nothing (observers refresh the UI). */
     fun createPlaylist(name: String, videoId: String? = null, select: Boolean = false) = viewModelScope.launch {
         val id = playlistDao.insertPlaylist(VideoPlaylistEntity(name = name.trim(), createdAt = System.currentTimeMillis()))

@@ -23,7 +23,7 @@ import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
+import androidx.media3.session.MediaLibraryService
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -36,8 +36,9 @@ import com.voxfeed.app.data.YouTubeStreamExtractor
  * Controllers send a MediaItem whose requestMetadata extras carry [EXTRA_URIS] (video URI first,
  * optional audio URI second -> merged), [EXTRA_VIDEO_ID], [EXTRA_DESCRIPTION].
  */
-class VoxPlaybackService : MediaSessionService() {
-    private var mediaSession: MediaSession? = null
+class VoxMediaLibraryService : MediaLibraryService() {
+    private var mediaSession: MediaLibrarySession? = null
+    private var libraryCallback: VoxLibraryCallback? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -76,8 +77,8 @@ class VoxPlaybackService : MediaSessionService() {
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
 
-        val session = MediaSession.Builder(this, player)
-            .setCallback(SessionCallback())
+        val libraryCallback = VoxLibraryCallback(this).also { this.libraryCallback = it }
+        val session = MediaLibrarySession.Builder(this, player, libraryCallback)
             .build()
         mediaSession = session
 
@@ -90,16 +91,16 @@ class VoxPlaybackService : MediaSessionService() {
                 val extras = mediaItem?.requestMetadata?.extras ?: return
                 val intent = if (extras.getBoolean(EXTRA_MUSIC, false)) {
                     // Music track: notification returns to the app (MainActivity), not the video player.
-                    Intent(this@VoxPlaybackService, MainActivity::class.java)
+                    Intent(this@VoxMediaLibraryService, MainActivity::class.java)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                } else Intent(this@VoxPlaybackService, VideoPlayerActivity::class.java)
+                } else Intent(this@VoxMediaLibraryService, VideoPlayerActivity::class.java)
                     .putExtra(VideoPlayerActivity.VIDEO_ID, extras.getString(EXTRA_VIDEO_ID))
                     .putExtra(VideoPlayerActivity.VIDEO_TITLE, mediaItem.mediaMetadata.title?.toString().orEmpty())
                     .putExtra(VideoPlayerActivity.VIDEO_DESCRIPTION, extras.getString(EXTRA_DESCRIPTION).orEmpty())
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 session.setSessionActivity(
                     PendingIntent.getActivity(
-                        this@VoxPlaybackService, 0, intent,
+                        this@VoxMediaLibraryService, 0, intent,
                         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                     )
                 )
@@ -107,7 +108,7 @@ class VoxPlaybackService : MediaSessionService() {
         })
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = mediaSession
 
     /**
      * Swiped away from recents: pause, stop and clear the queue, then stop the service. onDestroy() releases
@@ -131,29 +132,8 @@ class VoxPlaybackService : MediaSessionService() {
             runCatching { player.release() }
             runCatching { release() }
         }
+        libraryCallback?.release()
         super.onDestroy()
-    }
-
-    /** Resolves controller-supplied items (which have no localConfiguration) into playable ones. */
-    private class SessionCallback : MediaSession.Callback {
-        override fun onAddMediaItems(
-            mediaSession: MediaSession, controller: MediaSession.ControllerInfo, mediaItems: MutableList<MediaItem>
-        ): ListenableFuture<MutableList<MediaItem>> {
-            val resolved = mediaItems.map { item ->
-                val first = item.requestMetadata.extras?.getStringArray(EXTRA_URIS)?.firstOrNull()
-                val md = item.mediaMetadata
-                fun clean(s: CharSequence?, fallback: String) = s?.toString()?.takeIf { it.isNotBlank() && it != "null" } ?: fallback
-                val safe = item.buildUpon().setMediaMetadata(
-                    md.buildUpon()
-                        .setTitle(clean(md.title, "Unknown Audio-Stream"))
-                        .setArtist(clean(md.artist, "Unknown Artist"))
-                        .setAlbumTitle(clean(md.albumTitle, "VoxPlayer"))
-                        .build()
-                )
-                if (first != null) safe.setUri(first).build() else safe.build()
-            }.toMutableList()
-            return Futures.immediateFuture(resolved)
-        }
     }
 
     /**

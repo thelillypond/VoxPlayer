@@ -22,6 +22,10 @@ interface SubFeedDao {
 
 @Dao
 interface ChannelDao {
+    @Query("SELECT * FROM channels WHERE channelId != 'ADHOC' ORDER BY title COLLATE NOCASE")
+    suspend fun getAllChannels(): List<ChannelEntity>
+
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIgnore(channel: ChannelEntity): Long
 
@@ -58,6 +62,10 @@ data class ChannelTitleRow(val channelId: String, val channelTitle: String)
 
 @Dao
 interface VideoDao {
+    @Query("SELECT * FROM videos WHERE channelId = :channelId ORDER BY publishedAt DESC LIMIT :limit")
+    suspend fun getRecentByChannel(channelId: String, limit: Int): List<VideoEntity>
+
+
     @Query("SELECT channelId, channelTitle FROM videos WHERE channelTitle != '' GROUP BY channelId")
     fun observeChannelTitles(): Flow<List<ChannelTitleRow>>
 
@@ -145,6 +153,19 @@ interface DigestDao {
 
 @Dao
 interface VideoPlaylistDao {
+    @Query("SELECT * FROM video_playlists ORDER BY id")
+    suspend fun getPlaylists(): List<VideoPlaylistEntity>
+
+    @Query("SELECT * FROM video_playlists WHERE id = :id")
+    suspend fun getPlaylist(id: Long): VideoPlaylistEntity?
+
+    @Query(
+        "SELECT v.* FROM videos v INNER JOIN video_playlist_items i ON i.videoId = v.videoId " +
+            "WHERE i.playlistId = :playlistId ORDER BY i.addedAt, v.publishedAt DESC"
+    )
+    suspend fun getVideos(playlistId: Long): List<VideoEntity>
+
+
     @Query("SELECT * FROM video_playlists ORDER BY id")
     fun observePlaylists(): Flow<List<VideoPlaylistEntity>>
 

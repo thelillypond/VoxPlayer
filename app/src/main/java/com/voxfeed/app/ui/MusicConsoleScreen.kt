@@ -8,6 +8,16 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.BasicTextField
@@ -44,7 +54,7 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import coil.compose.AsyncImage
-import com.voxfeed.app.VoxPlaybackService
+import com.voxfeed.app.VoxMediaLibraryService
 import com.voxfeed.app.data.YouTubeStreamExtractor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -88,7 +98,7 @@ private fun MediaController.snapshot(): DeckState {
         title = md?.title?.toString().orEmpty(),
         artist = md?.artist?.toString().orEmpty(),
         artwork = md?.artworkUri?.toString(),
-        cached = item?.requestMetadata?.extras?.getBoolean(VoxPlaybackService.EXTRA_CACHED, false) == true,
+        cached = item?.requestMetadata?.extras?.getBoolean(VoxMediaLibraryService.EXTRA_CACHED, false) == true,
         positionMs = currentPosition.coerceAtLeast(0),
         durationMs = dur,
         shuffle = shuffleModeEnabled,
@@ -105,7 +115,7 @@ private fun MediaController.queueSnapshot(): List<QueueRow> = (0 until mediaItem
     QueueRow(
         item.mediaMetadata.title?.toString() ?: "Unknown Track",
         item.mediaMetadata.artist?.toString().orEmpty(),
-        item.requestMetadata.extras?.getBoolean(VoxPlaybackService.EXTRA_CACHED, false) == true
+        item.requestMetadata.extras?.getBoolean(VoxMediaLibraryService.EXTRA_CACHED, false) == true
     )
 }
 
@@ -136,9 +146,9 @@ private fun buildMusicItem(t: MusicTrackEntity, local: String?, playlistName: St
         )
         .setRequestMetadata(
             MediaItem.RequestMetadata.Builder().setExtras(
-                VoxPlaybackService.extras(t.id.toString(), "", listOf(play)).apply {
-                    putBoolean(VoxPlaybackService.EXTRA_MUSIC, true)
-                    putBoolean(VoxPlaybackService.EXTRA_CACHED, local != null)
+                VoxMediaLibraryService.extras(t.id.toString(), "", listOf(play)).apply {
+                    putBoolean(VoxMediaLibraryService.EXTRA_MUSIC, true)
+                    putBoolean(VoxMediaLibraryService.EXTRA_CACHED, local != null)
                 }
             ).build()
         )
@@ -169,14 +179,14 @@ private fun MusicConsoleMain(onExit: () -> Unit, activeId: Long, setActiveId: (L
     val scope = rememberCoroutineScope()
     val dao = remember { VoxDatabase.get(ctx).musicDao() }
 
-    BackHandler { onExit() } // audio keeps playing in VoxPlaybackService
+    BackHandler { onExit() } // audio keeps playing in VoxMediaLibraryService
 
-    // ── MediaController bound to the shared VoxPlaybackService ──
+    // - MediaController bound to the shared VoxMediaLibraryService -
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var deck by remember { mutableStateOf(DeckState()) }
     var queue by remember { mutableStateOf<List<QueueRow>>(emptyList()) }
     DisposableEffect(Unit) {
-        val token = SessionToken(ctx, ComponentName(ctx, VoxPlaybackService::class.java))
+        val token = SessionToken(ctx, ComponentName(ctx, VoxMediaLibraryService::class.java))
         val future = MediaController.Builder(ctx, token).buildAsync()
         var listener: Player.Listener? = null
         future.addListener({
@@ -207,7 +217,7 @@ private fun MusicConsoleMain(onExit: () -> Unit, activeId: Long, setActiveId: (L
         while (deck.isPlaying) { deck = c.snapshot(); delay(500) }
     }
 
-    // ── Room: playlists + tracks ──
+    // - Room: playlists + tracks -
     LaunchedEffect(Unit) { dao.ensureDefaultPlaylist() }
     val playlists by dao.observePlaylists().collectAsState(initial = emptyList())
     val allTracks by dao.observeAllTracks().collectAsState(initial = emptyList())
@@ -305,7 +315,7 @@ private fun MusicConsoleMain(onExit: () -> Unit, activeId: Long, setActiveId: (L
             .deckBackground().padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // ── Single-row header ──
+        // - Single-row header -
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 "Audio Deck", Modifier.weight(1f).padding(horizontal = 6.dp), color = Palette.Text,
@@ -320,13 +330,13 @@ private fun MusicConsoleMain(onExit: () -> Unit, activeId: Long, setActiveId: (L
         NowPlaying(deck, controller)
         Transport(deck, controller)
 
-        // ── Tab toggle ──
+        // - Tab toggle -
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             TabBtn("Playlist (${tracks.size})", tab == 0, Modifier.weight(1f)) { tab = 0 }
             TabBtn("Active Queue (${queue.size})", tab == 1, Modifier.weight(1f)) { tab = 1 }
         }
         if (tab == 0) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            PlaylistSelector(if (favMode) "★ Favourites" else active?.name ?: "---", tracks.size, Modifier.weight(1f)) { showPicker = true }
+            PlaylistSelector(if (favMode) "Favourites" else active?.name ?: "---", tracks.size, Modifier.weight(1f)) { showPicker = true }
             ActionButton("Play All", { playAll() }, enabled = tracks.isNotEmpty(), accent = true, height = 34.dp, size = 11, hPad = 8.dp, vPad = 4.dp)
         }
         if (tab == 0) genreFilter?.let { g -> Row { Chip("Genre: $g X", true) { genreFilter = null } } }
@@ -348,7 +358,7 @@ private fun MusicConsoleMain(onExit: () -> Unit, activeId: Long, setActiveId: (L
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                if (current) "▶" else "%02d".format(i + 1), color = if (current) Palette.Accent else Palette.Dim,
+                                "%02d".format(i + 1), color = if (current) Palette.Accent else Palette.Dim,
                                 fontFamily = Mono, fontSize = 10.sp, modifier = Modifier.width(22.dp)
                             )
                             Column(Modifier.weight(1f).padding(vertical = 3.dp)) {
@@ -378,7 +388,8 @@ private fun MusicConsoleMain(onExit: () -> Unit, activeId: Long, setActiveId: (L
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(if (pct != null) "$pct%" else "⬇", color = Palette.Amber, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = if (pct != null) 10.sp else 16.sp)
+                                if (pct != null) Text("$pct%", color = Palette.Amber, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                                else Icon(Icons.Default.Download, contentDescription = "Download", tint = Palette.Amber, modifier = Modifier.size(16.dp))
                             }
                         }
                     }
@@ -402,7 +413,7 @@ private fun MusicConsoleMain(onExit: () -> Unit, activeId: Long, setActiveId: (L
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                if (current) "▶" else "%02d".format(i + 1), color = if (current) Palette.Accent else Palette.Dim,
+                                "%02d".format(i + 1), color = if (current) Palette.Accent else Palette.Dim,
                                 fontFamily = Mono, fontSize = 10.sp, modifier = Modifier.width(22.dp)
                             )
                             Column(Modifier.weight(1f).padding(vertical = 3.dp)) {
@@ -426,7 +437,7 @@ private fun MusicConsoleMain(onExit: () -> Unit, activeId: Long, setActiveId: (L
 
     }
 
-    // ── Dialogs / sheet ──
+    // - Dialogs / sheet -
     if (showPicker) {
         PlaylistPickerDialog(
             playlists = playlists, counts = counts, activeId = if (favMode) MusicDao.FAV_ID else activePid,
@@ -434,7 +445,7 @@ private fun MusicConsoleMain(onExit: () -> Unit, activeId: Long, setActiveId: (L
             onNew = { showPicker = false; showNewPlaylist = true },
             onDismiss = { showPicker = false },
             top = {
-                ActionButton("★ Favourites", { setActiveId(MusicDao.FAV_ID); genreFilter = null; tab = 0; showPicker = false }, Modifier.fillMaxWidth(), accent = favMode)
+                ActionButton("Favourites", { setActiveId(MusicDao.FAV_ID); genreFilter = null; tab = 0; showPicker = false }, Modifier.fillMaxWidth(), accent = favMode, icon = Icons.Default.Star)
                 ActionButton(
                     "Shuffle All ($uniqueCount)", { showPicker = false; shuffleAll() },
                     Modifier.fillMaxWidth(), enabled = uniqueCount > 0, accent = true
@@ -488,7 +499,7 @@ private fun MusicConsoleMain(onExit: () -> Unit, activeId: Long, setActiveId: (L
 /** Full-width `Name (n) ▼` playlist selector button (shared by deck + library). */
 @Composable
 internal fun PlaylistSelector(name: String, count: Int, modifier: Modifier = Modifier.fillMaxWidth(), onClick: () -> Unit) {
-    ActionButton("${name} ($count) ▼", onClick, modifier, height = 34.dp, size = 11, hPad = 8.dp, vPad = 4.dp)
+    ActionButton("${name} ($count)", onClick, modifier, height = 34.dp, size = 11, hPad = 8.dp, vPad = 4.dp, icon = Icons.Default.ArrowDropDown, iconAtEnd = true)
 }
 
 /** Ork-styled modal listing every playlist with its track count. */
@@ -603,8 +614,9 @@ private fun ExtractDialog(
                 }
                 error?.let { Text(it, color = Palette.Alert, fontFamily = Mono, fontSize = 11.sp) }
                 ActionButton(
-                    "Target playlist: ${if (newMode) "+ New " + newName.ifBlank { "Playlist" } else playlists.firstOrNull { it.id == targetId }?.name ?: "---"} ▼",
-                    { showTargetPicker = true }, Modifier.fillMaxWidth(), height = 34.dp, size = 11, hPad = 8.dp, vPad = 4.dp
+                    "Target playlist: ${if (newMode) "+ New " + newName.ifBlank { "Playlist" } else playlists.firstOrNull { it.id == targetId }?.name ?: "---"}",
+                    { showTargetPicker = true }, Modifier.fillMaxWidth(), height = 34.dp, size = 11, hPad = 8.dp, vPad = 4.dp,
+                    icon = Icons.Default.ArrowDropDown, iconAtEnd = true
                 )
                 if (newMode) NameField(newName, { newName = it }, "New playlist name")
                 if (showTargetPicker) PlaylistPickerDialog(
@@ -682,7 +694,7 @@ private fun NowPlaying(deck: DeckState, controller: MediaController?) {
                 contentAlignment = Alignment.Center
             ) {
                 if (deck.artwork != null) AsyncImage(deck.artwork, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                else Text("♪", color = Palette.Accent, fontSize = 28.sp)
+                else Icon(Icons.Default.MusicNote, contentDescription = null, tint = Palette.Accent, modifier = Modifier.size(28.dp))
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
@@ -728,12 +740,13 @@ private fun Transport(deck: DeckState, c: MediaController?) {
     val h = 44.dp
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
         ActionButton("Shuffle", { c?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled } }, Modifier.weight(1f), enabled = on, active = deck.shuffle, height = h, size = 11, hPad = 4.dp, vPad = 4.dp)
-        ActionButton("|◀◀", { c?.seekToPreviousMediaItem() }, Modifier.weight(1f), enabled = on, height = h, size = 14, hPad = 4.dp, vPad = 4.dp)
+        ActionButton("", { c?.seekToPreviousMediaItem() }, Modifier.weight(1f), enabled = on, height = h, size = 14, hPad = 4.dp, vPad = 4.dp, icon = Icons.Default.SkipPrevious)
         ActionButton(
-            if (deck.isPlaying) "❚❚" else "▶",
+            "",
             { c?.let { if (it.isPlaying) it.pause() else { if (it.playbackState == Player.STATE_ENDED) it.seekTo(0); it.play() } } },
-            Modifier.weight(1.4f), enabled = on && deck.hasMedia, accent = true, height = h, size = 20, hPad = 4.dp, vPad = 4.dp
+            Modifier.weight(1.4f), enabled = on && deck.hasMedia, accent = true, height = h, size = 20, hPad = 4.dp, vPad = 4.dp,
+            icon = if (deck.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow
         )
-        ActionButton("▶▶|", { c?.seekToNextMediaItem() }, Modifier.weight(1f), enabled = on, height = h, size = 14, hPad = 4.dp, vPad = 4.dp)
+        ActionButton("", { c?.seekToNextMediaItem() }, Modifier.weight(1f), enabled = on, height = h, size = 14, hPad = 4.dp, vPad = 4.dp, icon = Icons.Default.SkipNext)
     }
 }

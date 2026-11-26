@@ -222,7 +222,7 @@ class VideoPlayerActivity : ComponentActivity() {
             .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist("VoxPlayer").build())
             .setRequestMetadata(
                 MediaItem.RequestMetadata.Builder()
-                    .setExtras(VoxPlaybackService.extras(videoId, description, uris)).build()
+                    .setExtras(VoxMediaLibraryService.extras(videoId, description, uris)).build()
             )
             .build()
 
@@ -234,14 +234,14 @@ class VideoPlayerActivity : ComponentActivity() {
     /**
      * Returns a connected MediaController, (re)building it with buildAsync() when it is null or the
      * service connection dropped. Never throws; returns null (and logs) if the service is unreachable.
-     * Binding through the controller lets Media3 start VoxPlaybackService safely (it promotes itself to the
+     * Binding through the controller lets Media3 start VoxMediaLibraryService safely (it promotes itself to the
      * foreground when playback begins, so no startForegroundService deadline can be missed).
      */
     private suspend fun awaitController(): MediaController? {
         controller?.takeIf { it.isConnected }?.let { return it }
         controller = null
         return try {
-            val token = SessionToken(this, ComponentName(this, VoxPlaybackService::class.java))
+            val token = SessionToken(this, ComponentName(this, VoxMediaLibraryService::class.java))
             val future = MediaController.Builder(this, token)
                 .setListener(object : MediaController.Listener {
                     override fun onDisconnected(c: MediaController) {
@@ -371,7 +371,7 @@ class VideoPlayerActivity : ComponentActivity() {
         }
     }
 
-    // No pause in onPause: playback lives in VoxPlaybackService and survives Home / screen off.
+    // No pause in onPause: playback lives in VoxMediaLibraryService and survives Home / screen off.
     override fun onDestroy() {
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null

@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -82,7 +84,8 @@ internal fun ScrubTrack(fraction: Float) {
 internal fun ActionButton(
     label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
     active: Boolean = false, accent: Boolean = false, height: Dp = 44.dp, size: Int = 13,
-    hPad: Dp = 10.dp, vPad: Dp = 8.dp
+    hPad: Dp = 10.dp, vPad: Dp = 8.dp,
+    icon: ImageVector? = null, iconAtEnd: Boolean = false
 ) {
     Box(
         modifier.heightIn(min = height).alpha(if (enabled) 1f else 0.4f)
@@ -93,11 +96,21 @@ internal fun ActionButton(
             .padding(horizontal = hPad, vertical = vPad),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            label, color = if (accent || active) Palette.Accent else Palette.Text,
-            fontFamily = Heavy, fontWeight = FontWeight.Black, fontSize = size.sp, textAlign = TextAlign.Center, maxLines = 2,
-            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-        )
+        val tint = if (accent || active) Palette.Accent else Palette.Text
+        val iconContent: @Composable () -> Unit = {
+            if (icon != null) Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+        }
+        val textContent: @Composable () -> Unit = {
+            if (label.isNotEmpty()) Text(
+                label, color = tint,
+                fontFamily = Heavy, fontWeight = FontWeight.Black, fontSize = size.sp, textAlign = TextAlign.Center, maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+        }
+        if (icon == null) textContent()
+        else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (label.isEmpty()) 0.dp else 4.dp)) {
+            if (iconAtEnd) { textContent(); iconContent() } else { iconContent(); textContent() }
+        }
     }
 }
 

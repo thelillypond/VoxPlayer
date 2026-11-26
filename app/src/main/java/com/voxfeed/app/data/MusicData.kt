@@ -125,6 +125,12 @@ interface MusicDao {
         findPlaylistByName(name)
             ?: MusicPlaylistEntity(name = name, createdAt = System.currentTimeMillis()).let { it.copy(id = insertPlaylist(it)) }
 
+    @Query("SELECT * FROM music_tracks WHERE isFavorite = 1 ORDER BY id")
+    suspend fun getFavoriteTracks(): List<MusicTrackEntity>
+
+    @Query("SELECT * FROM music_tracks ORDER BY playlistId, position, id")
+    suspend fun getAllTracks(): List<MusicTrackEntity>
+
     @Query("SELECT * FROM music_tracks WHERE localUri IS NOT NULL")
     suspend fun getCachedTracks(): List<MusicTrackEntity>
 

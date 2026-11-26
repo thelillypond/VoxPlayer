@@ -13,6 +13,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -145,7 +146,7 @@ fun LibraryScreen(activeId: Long, setActiveId: (Long) -> Unit, onBack: () -> Uni
             ActionButton("Back To Audio Deck", onBack, accent = true, height = 34.dp, size = 10, hPad = 6.dp, vPad = 4.dp)
         }
 
-        // ── Telemetry ──
+        // - Telemetry -
         Column(
             Modifier.fillMaxWidth().background(Palette.Surface).panelFrame(Palette.Accent).padding(horizontal = 8.dp, vertical = 5.dp)
         ) {
@@ -202,7 +203,7 @@ fun LibraryScreen(activeId: Long, setActiveId: (Long) -> Unit, onBack: () -> Uni
             ActionButton("Delete Playlist", { showDelete = true }, Modifier.weight(1f), enabled = canDelete, height = 34.dp, size = 10, vPad = 4.dp)
         }
 
-        // ── Track management ──
+        // - Track management -
         LazyColumn(
             Modifier.weight(1f).fillMaxWidth().background(Palette.Surface).panelFrame(),
             contentPadding = PaddingValues(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -258,7 +259,7 @@ fun LibraryScreen(activeId: Long, setActiveId: (Long) -> Unit, onBack: () -> Uni
             onNew = { showPicker = false; showNew = true },
             onDismiss = { showPicker = false },
             top = {
-                ActionButton("★ Favourites", { setActiveId(MusicDao.FAV_ID); genreFilter = null; showPicker = false }, Modifier.fillMaxWidth(), accent = favMode)
+                ActionButton("Favourites", { setActiveId(MusicDao.FAV_ID); genreFilter = null; showPicker = false }, Modifier.fillMaxWidth(), accent = favMode, icon = androidx.compose.material.icons.Icons.Default.Star)
             }
         )
     }

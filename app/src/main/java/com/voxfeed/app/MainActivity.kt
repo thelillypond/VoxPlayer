@@ -159,7 +159,7 @@ fun VoxApp(vm: FeedViewModel) {
 
     Box(Modifier.fillMaxSize().background(Palette.Bg)) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
-            // ── Header ──
+            // - Header -
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "Videos", Modifier.weight(1f).padding(horizontal = 6.dp), color = Palette.Text,
@@ -172,7 +172,7 @@ fun VoxApp(vm: FeedViewModel) {
             }
             Spacer(Modifier.height(6.dp))
 
-            // ── Filters: channel + playlist dropdowns, then Play All ──
+            // - Filters: channel + playlist dropdowns, then Play All -
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 val channelLabel = when (val f = channelFilter) {
                     ChannelFilter.All -> "All Channels"
@@ -266,7 +266,7 @@ fun VoxApp(vm: FeedViewModel) {
             onAddToPlaylist = { v -> playlistTarget = v }
         )
     }
-    // ── Dialogs ──
+    // - Dialogs -
     if (showAddChannel) AddChannelSheet(
         subFeeds, (channelFilter as? ChannelFilter.Group)?.id,
         onDismiss = { showAddChannel = false },
@@ -353,7 +353,7 @@ fun VoxApp(vm: FeedViewModel) {
     }
 }
 
-// ── Dropdown building blocks ────────────────────────────────────────────────
+// - Dropdown building blocks ------------------------
 
 /** Compact top-bar dropdown: a button that opens a [DropdownMenu]. */
 @Composable
@@ -397,7 +397,7 @@ private fun MenuHeader(text: String) {
     )
 }
 
-// ── Video list ──────────────────────────────────────────────────────────────
+// - Video list -------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
