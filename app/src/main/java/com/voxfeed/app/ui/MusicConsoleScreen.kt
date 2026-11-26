@@ -1,7 +1,10 @@
 package com.voxfeed.app.ui
 
 import android.content.ComponentName
+import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -475,6 +478,7 @@ private fun MusicConsoleMain(onExit: () -> Unit, activeId: Long, setActiveId: (L
     sheetUrl?.let { initial ->
         ExtractDialog(
             playlists = playlists, counts = counts, defaultPlaylistId = activePid, initialUrl = initial,
+            dao = dao, onImportDone = { setActiveId(it); genreFilter = null; tab = 0 },
             onDismiss = { sheetUrl = null },
             onCommit = { picked, targetId, newName, download ->
                 scope.launch {
@@ -551,6 +555,7 @@ private fun TabBtn(label: String, selected: Boolean, modifier: Modifier, onClick
 @Composable
 private fun ExtractDialog(
     playlists: List<MusicPlaylistEntity>, counts: Map<Long, Int>, defaultPlaylistId: Long, initialUrl: String,
+    dao: MusicDao, onImportDone: (Long) -> Unit,
     onDismiss: () -> Unit,
     onCommit: (picked: List<ScannedTrack>, targetId: Long?, newName: String?, download: Boolean) -> Unit
 ) {
@@ -565,9 +570,97 @@ private fun ExtractDialog(
     var newMode by remember { mutableStateOf(false) }
     var newName by remember { mutableStateOf("") }
     var cacheOffline by remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
+
+    // - Spotify import state -
+    var pending by remember { mutableStateOf<ImportList?>(null) }
+    var importing by remember { mutableStateOf(false) }
+    var matched by remember { mutableStateOf(0) }
+    var processed by remember { mutableStateOf(0) }
+    var importDone by remember { mutableStateOf(false) }
+    var importedRows by remember { mutableStateOf<List<MusicTrackEntity>>(emptyList()) }
+    var importedName by remember { mutableStateOf("") }
+    var cachingStarted by remember { mutableStateOf(false) }
+
+    fun offerImport(list: ImportList) {
+        pending = list; scan = null; checked = emptySet(); importDone = false; importedRows = emptyList()
+        matched = 0; processed = 0; cachingStarted = false
+        // Default: auto-create a playlist named after the source; the selector can pick an existing one.
+        newMode = true; newName = list.name
+        if (list.tracks.isEmpty()) error = "No tracks found"
+    }
+
+    fun doSpotify() {
+        if (scanning || importing) return
+        scanning = true; error = null; scan = null; pending = null
+        scope.launch {
+            try {
+                offerImport(SpotifyImporter.fetchPlaylist(input))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = "Spotify import failed: ${e.message ?: e.javaClass.simpleName}".take(140)
+            } finally { scanning = false }
+        }
+    }
+
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            error = null; scan = null
+            try {
+                val list = withContext(Dispatchers.IO) {
+                    val name = ctx.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                        ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: "Imported Playlist"
+                    val text = ctx.contentResolver.openInputStream(uri)?.use { String(it.readBytes(), Charsets.UTF_8) }.orEmpty()
+                    SpotifyImporter.parseFile(name, text)
+                }
+                offerImport(list)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = "File import failed: ${e.message ?: e.javaClass.simpleName}".take(140)
+            }
+        }
+    }
+
+    fun startImport() {
+        val list = pending ?: return
+        if (importing) return
+        importing = true; importDone = false; matched = 0; processed = 0; error = null
+        val rows = ArrayList<MusicTrackEntity>()
+        scope.launch {
+            try {
+                val pid = if (newMode) dao.getOrCreatePlaylist(newName.trim()).id else targetId ?: return@launch
+                val pname = dao.getPlaylist(pid)?.name ?: MusicDao.DEFAULT_PLAYLIST
+                importedName = pname
+                val seen = dao.getTracks(pid).map { it.sourceUrl }.toMutableSet()
+                for (t in list.tracks) {
+                    val m = runCatching { SpotifyImporter.match(t) }.getOrNull()
+                    if (m != null && seen.add(m.url)) {
+                        rows += dao.appendTracks(pid, listOf(MusicTrackEntity(
+                            playlistId = pid, title = m.title, artist = m.artist, durationMs = m.durationMs,
+                            sourceUrl = m.url, thumbnailUrl = m.thumbnailUrl, localUri = null, position = 0
+                        )))
+                        matched++
+                    } else if (m != null) matched++
+                    processed++
+                    importedRows = rows.toList()
+                }
+                onImportDone(pid)
+                importDone = true
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = "Import failed: ${e.message ?: e.javaClass.simpleName}".take(140)
+            } finally { importing = false }
+        }
+    }
 
     fun doScan() {
         if (input.isBlank() || scanning) return
+        if (SpotifyImporter.isSpotifyPlaylistUrl(input)) { doSpotify(); return }
+        pending = null
         scanning = true; error = null; scan = null
         scope.launch {
             try {
@@ -585,6 +678,8 @@ private fun ExtractDialog(
         }
     }
     LaunchedEffect(Unit) { if (initialUrl.isNotBlank()) doScan() }
+    // Pasting a Spotify playlist link into the URL field auto-detects it.
+    LaunchedEffect(input) { if (pending == null && !scanning && !importing && SpotifyImporter.isSpotifyPlaylistUrl(input)) doSpotify() }
 
     val s = scan
     val ready = s != null && checked.isNotEmpty() && (!newMode && targetId != null || newMode && newName.isNotBlank())
@@ -613,6 +708,38 @@ private fun ExtractDialog(
                     ActionButton(if (scanning) "..." else "Scan", { doScan() }, enabled = input.isNotBlank() && !scanning, accent = true, height = 40.dp, size = 11)
                 }
                 error?.let { Text(it, color = Palette.Alert, fontFamily = Mono, fontSize = 11.sp) }
+                // - Import Spotify -
+                Column(Modifier.fillMaxWidth().border(1.dp, Palette.Border).padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Import Spotify", color = Palette.Amber, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("Paste a public open.spotify.com/playlist link above, or pick a CSV / TXT export.", color = Palette.Dim, fontFamily = Mono, fontSize = 10.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ActionButton("Fetch Playlist URL", { doSpotify() }, Modifier.weight(1f), enabled = SpotifyImporter.isSpotifyPlaylistUrl(input) && !scanning && !importing, height = 36.dp, size = 11)
+                        ActionButton("CSV / TXT File", { filePicker.launch(arrayOf("*/*")) }, Modifier.weight(1f), enabled = !importing, height = 36.dp, size = 11)
+                    }
+                    pending?.let { p ->
+                        Text("${p.name} | ${p.tracks.size} tracks", color = Palette.Accent, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (importing || importDone) Text(
+                            "Matched $matched / ${p.tracks.size} tracks", color = if (importDone) Palette.Accent else Palette.Amber,
+                            fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 12.sp
+                        )
+                        if (importing) LinearProgressIndicator(
+                            progress = { processed.toFloat() / p.tracks.size.coerceAtLeast(1) },
+                            modifier = Modifier.fillMaxWidth(), color = Palette.Accent, trackColor = Palette.Border
+                        )
+                        if (!importDone) ActionButton(
+                            if (importing) "Matching..." else "Import ${p.tracks.size} Tracks", { startImport() }, Modifier.fillMaxWidth(),
+                            enabled = !importing && p.tracks.isNotEmpty() && (newMode && newName.isNotBlank() || !newMode && targetId != null), accent = true, height = 38.dp, size = 12
+                        )
+                        if (importDone) ActionButton(
+                            if (cachingStarted) "Caching ${importedRows.size} track(s)..." else "Cache All (${importedRows.size})",
+                            {
+                                importedRows.forEach { MusicDownloader.enqueue(ctx, it, importedName) }
+                                cachingStarted = true
+                            },
+                            Modifier.fillMaxWidth(), enabled = importedRows.isNotEmpty() && !cachingStarted, accent = true, height = 38.dp, size = 12
+                        )
+                    }
+                }
                 ActionButton(
                     "Target playlist: ${if (newMode) "+ New " + newName.ifBlank { "Playlist" } else playlists.firstOrNull { it.id == targetId }?.name ?: "---"}",
                     { showTargetPicker = true }, Modifier.fillMaxWidth(), height = 34.dp, size = 11, hPad = 8.dp, vPad = 4.dp,
@@ -672,7 +799,7 @@ private fun ExtractDialog(
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ActionButton("Cancel", onDismiss, Modifier.weight(1f))
+                    ActionButton(if (importDone) "Close" else "Cancel", onDismiss, Modifier.weight(1f))
                     ActionButton("Initiate Extraction", { commit() }, Modifier.weight(2f), enabled = ready, accent = true, size = 12)
                 }
             }
